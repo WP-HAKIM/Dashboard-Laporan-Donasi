@@ -7,12 +7,23 @@ export function usePrograms() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const transformProgram = (program: any): Program => ({
+    id: program.id,
+    type: program.type,
+    name: program.name,
+    code: program.code,
+    description: program.description,
+    volunteerRate: program.volunteer_rate || program.volunteerRate,
+    branchRate: program.branch_rate || program.branchRate
+  });
+
   const fetchPrograms = async () => {
     try {
       setIsLoading(true);
       setError(null);
       const response = await programsAPI.getAll();
-      setPrograms(response.data || []);
+      const transformedPrograms = (response.data || []).map(transformProgram);
+      setPrograms(transformedPrograms);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to fetch programs');
       console.error('Error fetching programs:', err);
@@ -27,9 +38,19 @@ export function usePrograms() {
 
   const createProgram = async (data: Omit<Program, 'id'>) => {
     try {
-      const response = await programsAPI.create(data);
-      setPrograms(prev => [...prev, response.data]);
-      return response.data;
+      // Transform frontend data to backend format
+      const backendData = {
+        type: data.type,
+        name: data.name,
+        code: data.code,
+        description: data.description,
+        volunteer_rate: data.volunteerRate,
+        branch_rate: data.branchRate
+      };
+      const response = await programsAPI.create(backendData);
+      const transformedProgram = transformProgram(response.data);
+      setPrograms(prev => [...prev, transformedProgram]);
+      return transformedProgram;
     } catch (err: any) {
       throw new Error(err.response?.data?.message || 'Failed to create program');
     }
@@ -37,11 +58,21 @@ export function usePrograms() {
 
   const updateProgram = async (id: string, data: Partial<Program>) => {
     try {
-      const response = await programsAPI.update(id, data);
+      // Transform frontend data to backend format
+      const backendData: any = {};
+      if (data.type) backendData.type = data.type;
+      if (data.name) backendData.name = data.name;
+      if (data.code) backendData.code = data.code;
+      if (data.description) backendData.description = data.description;
+      if (data.volunteerRate !== undefined) backendData.volunteer_rate = data.volunteerRate;
+      if (data.branchRate !== undefined) backendData.branch_rate = data.branchRate;
+      
+      const response = await programsAPI.update(id, backendData);
+      const transformedProgram = transformProgram(response.data);
       setPrograms(prev => prev.map(program => 
-        program.id === id ? response.data : program
+        program.id === id ? transformedProgram : program
       ));
-      return response.data;
+      return transformedProgram;
     } catch (err: any) {
       throw new Error(err.response?.data?.message || 'Failed to update program');
     }

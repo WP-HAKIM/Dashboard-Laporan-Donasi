@@ -6,42 +6,49 @@ import {
   Clock, 
   DollarSign,
   Award,
-  Loader
+  BarChart3,
+  RefreshCw
 } from 'lucide-react';
-import { useAuthContext } from '../../hooks/useAuth.tsx';
-import { useTransactions } from '../../hooks/useTransactions';
-import { useBranches } from '../../hooks/useBranches';
-import { usePrograms } from '../../hooks/usePrograms';
+import { useAuth } from '../../hooks/useAuth.tsx';
+import { useDashboard } from '../../hooks/useDashboard';
+import DashboardFilter from './DashboardFilter';
+import ProgramTrendChart from './ProgramTrendChart';
+import Loader from '../Common/Loader';
 
 export default function DashboardView() {
-  const { user } = useAuthContext();
-  const { transactions, isLoading: transactionsLoading, error: transactionsError } = useTransactions();
-  const { branches, isLoading: branchesLoading } = useBranches();
-  const { programs, isLoading: programsLoading } = usePrograms();
-
-  const isLoading = transactionsLoading || branchesLoading || programsLoading;
+  const { user } = useAuth();
+  const { 
+    dashboardData, 
+    isLoading, 
+    error, 
+    currentFilter, 
+    updateFilter, 
+    refreshData 
+  } = useDashboard();
 
   if (isLoading) {
-    return <Loader />;
+    return <Loader text="Memuat Data Dashboard" size="medium" />;
   }
 
-  if (transactionsError) {
+  if (error) {
     return (
       <div className="p-6">
         <div className="text-center py-12">
-          <p className="text-red-500">Error: {transactionsError}</p>
+          <p className="text-red-500 mb-4">Error: {error}</p>
+          <button
+            onClick={refreshData}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Coba Lagi
+          </button>
         </div>
       </div>
     );
   }
 
-  // Calculate statistics
-  const totalTransactions = transactions.length;
-  const validatedTransactions = transactions.filter(t => t.status === 'valid').length;
-  const pendingTransactions = transactions.filter(t => t.status === 'pending').length;
-  const totalAmount = transactions
-    .filter(t => t.status === 'valid')
-    .reduce((sum, t) => sum + t.amount, 0);
+  if (!dashboardData) {
+    return <Loader text="Memuat Data Dashboard" size="medium" />;
+  }
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('id-ID', {
@@ -51,69 +58,83 @@ export default function DashboardView() {
     }).format(amount);
   };
 
+  const formatDate = (dateString: string) => {
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) {
+        return '-';
+      }
+      return date.toLocaleDateString('id-ID', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    } catch (error) {
+      return '-';
+    }
+  };
+
   const stats = [
     {
       title: 'Total Donasi Tervalidasi',
-      value: formatCurrency(totalAmount),
+      value: formatCurrency(dashboardData.transaction_stats.total_amount),
       icon: DollarSign,
       color: 'bg-green-500',
       textColor: 'text-green-600'
     },
     {
       title: 'Transaksi Tervalidasi',
-      value: validatedTransactions.toString(),
+      value: dashboardData.transaction_stats.valid_transactions.toString(),
       icon: CheckCircle,
       color: 'bg-blue-500',
       textColor: 'text-blue-600'
     },
     {
       title: 'Menunggu Validasi',
-      value: pendingTransactions.toString(),
+      value: dashboardData.transaction_stats.pending_transactions.toString(),
       icon: Clock,
       color: 'bg-yellow-500',
       textColor: 'text-yellow-600'
     },
     {
       title: 'Total Transaksi',
-      value: totalTransactions.toString(),
+      value: dashboardData.transaction_stats.total_transactions.toString(),
       icon: TrendingUp,
       color: 'bg-purple-500',
       textColor: 'text-purple-600'
     }
   ];
 
-  const programStats = programs.map(program => {
-    const programTransactions = transactions.filter(t => t.programId === program.id);
-    const validAmount = programTransactions
-      .filter(t => t.status === 'valid')
-      .reduce((sum, t) => sum + t.amount, 0);
-    return {
-      name: program.name,
-      amount: validAmount,
-      count: programTransactions.length
-    };
-  });
-
-  const branchStats = branches.map(branch => {
-    const branchTransactions = transactions.filter(t => t.branchId === branch.id);
-    const validAmount = branchTransactions
-      .filter(t => t.status === 'valid')
-      .reduce((sum, t) => sum + t.amount, 0);
-    return {
-      name: branch.name,
-      amount: validAmount,
-      count: branchTransactions.length
-    };
-  });
+  const programStats = dashboardData.program_stats.program_performance;
+  const branchStats = dashboardData.branch_stats.branch_performance;
 
   return (
     <div className="p-6">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-600 mt-2">
-          Selamat datang, {user?.name}! Berikut ringkasan aktivitas donasi.
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
+            <p className="text-gray-600 mt-2">
+              Selamat datang, {user?.name}! Berikut ringkasan aktivitas donasi.
+            </p>
+          </div>
+          <button
+            onClick={refreshData}
+            disabled={isLoading}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </div>
+
+      {/* Dashboard Filter */}
+      <DashboardFilter
+        currentFilter={currentFilter}
+        onFilterChange={updateFilter}
+        isLoading={isLoading}
+      />
 
       {/* Statistics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -145,11 +166,11 @@ export default function DashboardView() {
             {programStats.map((program, index) => (
               <div key={index} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                 <div>
-                  <h3 className="font-medium text-gray-900">{program.name}</h3>
-                  <p className="text-sm text-gray-600">{program.count} transaksi</p>
+                  <h3 className="font-medium text-gray-900">{program.program_name}</h3>
+                  <p className="text-sm text-gray-600">{program.transaction_count} transaksi</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-bold text-blue-600">{formatCurrency(program.amount)}</p>
+                  <p className="font-bold text-blue-600">{formatCurrency(program.total_amount)}</p>
                 </div>
               </div>
             ))}
@@ -163,11 +184,11 @@ export default function DashboardView() {
             {branchStats.map((branch, index) => (
               <div key={index} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                 <div>
-                  <h3 className="font-medium text-gray-900">{branch.name}</h3>
-                  <p className="text-sm text-gray-600">{branch.count} transaksi</p>
+                  <h3 className="font-medium text-gray-900">{branch.branch_name}</h3>
+                  <p className="text-sm text-gray-600">{branch.transaction_count} transaksi</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-bold text-green-600">{formatCurrency(branch.amount)}</p>
+                  <p className="font-bold text-green-600">{formatCurrency(branch.total_amount)}</p>
                 </div>
               </div>
             ))}
@@ -175,13 +196,22 @@ export default function DashboardView() {
         </div>
       </div>
 
+      {/* Monthly Trend Chart */}
+      <div className="mt-8">
+        <ProgramTrendChart data={dashboardData.program_trend} />
+      </div>
+
       {/* Recent Transactions */}
-      <div className="mt-8 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h2 className="text-xl font-bold text-gray-900 mb-6">Transaksi Terbaru</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-200">
+      <div className="mt-8 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div className="p-4 sm:p-6 border-b border-gray-200">
+          <h2 className="text-xl font-bold text-gray-900">Transaksi Terbaru</h2>
+        </div>
+        
+        {/* Desktop Table View */}
+        <div className="hidden lg:block overflow-x-auto">
+          <table className="w-full min-w-[700px]">
+            <thead className="bg-gray-50">
+              <tr>
                 <th className="text-left py-3 px-4 font-medium text-gray-700">Donatur</th>
                 <th className="text-left py-3 px-4 font-medium text-gray-700">Program</th>
                 <th className="text-left py-3 px-4 font-medium text-gray-700">Nominal</th>
@@ -190,12 +220,11 @@ export default function DashboardView() {
               </tr>
             </thead>
             <tbody>
-              {transactions.slice(0, 5).map((transaction) => {
-                const program = programs.find(p => p.id === transaction.programId);
+              {dashboardData.recent_transactions.map((transaction) => {
                 return (
                   <tr key={transaction.id} className="border-b border-gray-100">
-                    <td className="py-3 px-4">{transaction.donorName}</td>
-                    <td className="py-3 px-4">{program?.name}</td>
+                    <td className="py-3 px-4">{transaction.donor_name}</td>
+                    <td className="py-3 px-4">{transaction.program_name || '-'}</td>
                     <td className="py-3 px-4 font-medium">
                       {formatCurrency(transaction.amount)}
                     </td>
@@ -212,7 +241,7 @@ export default function DashboardView() {
                       </span>
                     </td>
                     <td className="py-3 px-4 text-gray-600">
-                      {new Date(transaction.createdAt).toLocaleDateString('id-ID')}
+                      {formatDate(transaction.created_at)}
                     </td>
                   </tr>
                 );
@@ -220,6 +249,44 @@ export default function DashboardView() {
             </tbody>
           </table>
         </div>
+
+        {/* Mobile/Tablet Card View */}
+        <div className="lg:hidden">
+          {dashboardData.recent_transactions.map((transaction) => (
+            <div key={transaction.id} className="border-b border-gray-100 p-4">
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <h3 className="font-medium text-gray-900">{transaction.donor_name}</h3>
+                  <p className="text-sm text-gray-600">{transaction.program_name || '-'}</p>
+                </div>
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                  transaction.status === 'valid' 
+                    ? 'bg-green-100 text-green-800'
+                    : transaction.status === 'pending'
+                    ? 'bg-yellow-100 text-yellow-800'
+                    : 'bg-red-100 text-red-800'
+                }`}>
+                  {transaction.status === 'valid' ? 'Tervalidasi' : 
+                   transaction.status === 'pending' ? 'Menunggu' : 'Ditolak'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="font-medium text-green-600">
+                  {formatCurrency(transaction.amount)}
+                </div>
+                <div className="text-sm text-gray-500">
+                  {formatDate(transaction.created_at)}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        
+        {dashboardData.recent_transactions.length === 0 && (
+          <div className="text-center py-12">
+            <p className="text-gray-500">Tidak ada transaksi terbaru</p>
+          </div>
+        )}
       </div>
     </div>
   );

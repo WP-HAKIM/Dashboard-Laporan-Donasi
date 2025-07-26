@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Plus, Edit, Trash2, Search, Users, Loader } from 'lucide-react';
+import { Plus, Edit, Trash2, Search, Users } from 'lucide-react';
 import { Team } from '../../types';
 import { useTeams } from '../../hooks/useTeams';
 import { useBranches } from '../../hooks/useBranches';
+import Loader from '../Common/Loader';
 
 export default function TeamManagement() {
   const { teams, isLoading: teamsLoading, error: teamsError, createTeam, updateTeam, deleteTeam } = useTeams();
@@ -97,14 +98,7 @@ export default function TeamManagement() {
   const teamsByBranch = getTeamsByBranch();
 
   if (teamsLoading || branchesLoading) {
-    return (
-      <div className="p-6 flex items-center justify-center min-h-96">
-        <div className="flex items-center space-x-2">
-          <Loader className="w-6 h-6 animate-spin text-blue-600" />
-          <span className="text-gray-600">Memuat data tim...</span>
-        </div>
-      </div>
-    );
+    return <Loader text="Memuat Data" size="medium" />;
   }
 
   if (teamsError) {

@@ -8,11 +8,21 @@ export function useTransactions() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchTransactions = async (params?: { status?: string; branch_id?: string; program_id?: string }) => {
+  const fetchTransactions = async (params?: { 
+    status?: string; 
+    branch_id?: string; 
+    program_id?: string;
+    team_id?: string;
+    program_type?: string;
+    date_from?: string;
+    date_to?: string;
+    date_preset?: string;
+  }) => {
     try {
       setIsLoading(true);
       setError(null);
       const response = await transactionsAPI.getAll(params);
+      // API returns paginated data with structure: {data: [...], links: {...}, meta: {...}}
       setTransactions(response.data || []);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to fetch transactions');
@@ -27,6 +37,7 @@ export function useTransactions() {
       setIsLoading(true);
       setError(null);
       const response = await transactionsAPI.getMyTransactions();
+      // API returns paginated data with structure: {data: [...], links: {...}, meta: {...}}
       setMyTransactions(response.data || []);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to fetch my transactions');

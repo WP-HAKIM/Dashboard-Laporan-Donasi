@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Plus, Edit, Trash2, Search, Building, Loader } from 'lucide-react';
+import { Plus, Edit, Trash2, Search, Building } from 'lucide-react';
 import { Branch } from '../../types';
 import { useBranches } from '../../hooks/useBranches';
+import Loader from '../Common/Loader';
 
 export default function BranchManagement() {
   const { branches, isLoading, error, createBranch, updateBranch, deleteBranch } = useBranches();
@@ -67,14 +68,7 @@ export default function BranchManagement() {
   };
 
   if (isLoading) {
-    return (
-      <div className="p-6 flex items-center justify-center min-h-96">
-        <div className="flex items-center space-x-2">
-          <Loader className="w-6 h-6 animate-spin text-blue-600" />
-          <span className="text-gray-600">Memuat data cabang...</span>
-        </div>
-      </div>
-    );
+    return <Loader text="Memuat Data" size="medium" />;
   }
 
   if (error) {

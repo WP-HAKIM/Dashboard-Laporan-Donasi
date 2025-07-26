@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { AuthProvider, useAuthContext } from './hooks/useAuth.tsx';
-import LoginForm from './components/Auth/LoginForm';
+import { AuthProvider, useAuth } from './hooks/useAuth.tsx';
+import LoginForm from './components/Auth/LoginForm.tsx';
 import Sidebar from './components/Layout/Sidebar';
 import DashboardView from './components/Dashboard/DashboardView';
 import VolunteerManagement from './components/Volunteers/VolunteerManagement';
 import ProgramManagement from './components/Programs/ProgramManagement';
+import PaymentMethodManagement from './components/PaymentMethods/PaymentMethodManagement';
 import AllTransactions from './components/Transactions/AllTransactions';
 import MyTransactions from './components/Transactions/MyTransactions';
 import TransactionInput from './components/Transactions/TransactionInput';
@@ -13,8 +14,9 @@ import BranchManagement from './components/Branches/BranchManagement';
 import TeamManagement from './components/Teams/TeamManagement';
 
 function AppContent() {
-  const { user, isLoading } = useAuthContext();
+  const { user, isLoading } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   if (isLoading) {
     return (
@@ -39,6 +41,8 @@ function AppContent() {
         return <VolunteerManagement />;
       case 'programs':
         return <ProgramManagement />;
+      case 'payment-methods':
+        return <PaymentMethodManagement />;
       case 'input-transaction':
         return <TransactionInput />;
       case 'validation':
@@ -58,8 +62,15 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
-      <div className="flex-1 overflow-auto">
+      <Sidebar 
+        activeTab={activeTab} 
+        setActiveTab={setActiveTab}
+        collapsed={sidebarCollapsed}
+        setCollapsed={setSidebarCollapsed}
+      />
+      <div className={`flex-1 overflow-auto ${
+        sidebarCollapsed ? 'pt-16 lg:pt-0' : ''
+      }`}>
         {renderContent()}
       </div>
     </div>

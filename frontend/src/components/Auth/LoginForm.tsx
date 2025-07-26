@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useAuthContext } from '../../hooks/useAuth.tsx';
+import { useAuth } from '../../hooks/useAuth.tsx';
 import { Lock, Mail, AlertCircle } from 'lucide-react';
 
 export default function LoginForm() {
@@ -7,7 +7,7 @@ export default function LoginForm() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuthContext();
+  const { login } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,8 +93,8 @@ export default function LoginForm() {
             <h3 className="font-medium text-gray-900 mb-2">Demo Akun:</h3>
             <div className="text-sm text-gray-600 space-y-1">
               <div>Admin: admin@pabu.org</div>
-              <div>Branch Manager: branch@pabu.org</div>
-              <div>Volunteer: volunteer@pabu.org</div>
+              <div>Branch Manager: manager.jakarta@pabu.org</div>
+              <div>Volunteer: ahmad@pabu.org</div>
               <div className="text-xs text-gray-500 mt-2">Password: password</div>
             </div>
           </div>

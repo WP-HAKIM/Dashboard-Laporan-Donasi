@@ -150,39 +150,48 @@ export const teamsAPI = {
 export const programsAPI = {
   getAll: async () => {
     const response = await api.get('/programs');
-    return response.data;
+    return response;
   },
   
   getById: async (id: string) => {
     const response = await api.get(`/programs/${id}`);
-    return response.data;
+    return response;
   },
   
   create: async (data: Omit<Program, 'id'>) => {
     const response = await api.post('/programs', data);
-    return response.data;
+    return response;
   },
   
   update: async (id: string, data: Partial<Program>) => {
     const response = await api.put(`/programs/${id}`, data);
-    return response.data;
+    return response;
   },
   
   delete: async (id: string) => {
     const response = await api.delete(`/programs/${id}`);
-    return response.data;
+    return response;
   },
 };
 
 // Transactions API
 export const transactionsAPI = {
-  getAll: async (params?: { status?: string; branch_id?: string; program_id?: string }) => {
+  getAll: async (params?: { 
+    status?: string; 
+    branch_id?: string; 
+    program_id?: string;
+    team_id?: string;
+    program_type?: string;
+    date_from?: string;
+    date_to?: string;
+    date_preset?: string;
+  }) => {
     const response = await api.get('/transactions', { params });
     return response.data;
   },
   
   getMyTransactions: async () => {
-    const response = await api.get('/transactions/my');
+    const response = await api.get('/my-transactions');
     return response.data;
   },
   
@@ -219,4 +228,18 @@ export const transactionsAPI = {
   },
 };
 
+// Dashboard API
+export const dashboardAPI = {
+  getData: async (params?: {
+    filter_type?: string;
+    start_date?: string;
+    end_date?: string;
+  }) => {
+    const response = await api.get('/dashboard', { params });
+    return response.data;
+  },
+};
+
+// Export the api instance as both default and named export
+export { api };
 export default api;

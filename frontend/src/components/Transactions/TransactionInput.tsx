@@ -1,18 +1,25 @@
-import React, { useState } from 'react';
-import { Upload, Save, DollarSign, Loader } from 'lucide-react';
-import { useAuthContext } from '../../hooks/useAuth.tsx';
+import React, { useState, useEffect } from 'react';
+import { Upload, Save, Loader } from 'lucide-react';
+import { useAuth } from '../../hooks/useAuth.tsx';
 import { useBranches } from '../../hooks/useBranches';
 import { useTeams } from '../../hooks/useTeams';
 import { usePrograms } from '../../hooks/usePrograms';
 import { useTransactions } from '../../hooks/useTransactions';
+import { usePaymentMethods } from '../../hooks/usePaymentMethods';
+import { useUsers } from '../../hooks/useUsers';
+import { User, Team } from '../../types';
+import { teamsAPI } from '../../services/api';
 
 export default function TransactionInput() {
-  const { user } = useAuthContext();
+  const { user } = useAuth();
   const { branches } = useBranches();
-  const { teams } = useTeams();
   const { programs } = usePrograms();
   const { createTransaction } = useTransactions();
+  const { paymentMethods } = usePaymentMethods();
+  const { getUsersByTeam } = useUsers();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [volunteers, setVolunteers] = useState<User[]>([]);
+  const [branchTeams, setBranchTeams] = useState<Team[]>([]);
   const [formData, setFormData] = useState({
     branchId: user?.role === 'volunteer' ? user.branchId : '',
     teamId: user?.role === 'volunteer' ? user.teamId : '',
@@ -21,15 +28,81 @@ export default function TransactionInput() {
     programId: '',
     donorName: '',
     amount: '',
-    transferMethod: 'BRI',
+    transferMethod: '',
     proofImage: null as File | null,
     datetime: new Date().toISOString().slice(0, 16)
   });
 
-  const filteredTeams = teams.filter(team => team.branchId === formData.branchId);
   const filteredPrograms = programs.filter(program => program.type === formData.programType);
+  // Handle different team ID formats from backend for volunteers
+  const filteredVolunteers = volunteers.filter(volunteer => {
+    const volunteerTeamId = volunteer.teamId || (volunteer as any).team_id || volunteer.team?.id;
+    return String(volunteerTeamId) === String(formData.teamId);
+  });
 
-  const transferMethods = ['BRI', 'BSI', 'BCA', 'Mandiri', 'BNI', 'CIMB Niaga', 'Danamon'];
+  // Load teams when branch changes
+  useEffect(() => {
+    const loadTeamsByBranch = async () => {
+      if (formData.branchId) {
+        try {
+          const response = await teamsAPI.getAll();
+          const teams = response.data || [];
+          // Handle different branch ID formats from backend
+          const filteredTeams = teams.filter((team: Team) => {
+            const teamBranchId = team.branchId || (team as any).branch_id || team.branch?.id;
+            return String(teamBranchId) === String(formData.branchId);
+          });
+          setBranchTeams(filteredTeams);
+        } catch (error) {
+          console.error('Error loading teams:', error);
+          setBranchTeams([]);
+        }
+      } else {
+        setBranchTeams([]);
+      }
+    };
+
+    loadTeamsByBranch();
+  }, [formData.branchId]);
+
+  // Load volunteers when team changes
+  useEffect(() => {
+    const loadVolunteers = async () => {
+      if (formData.teamId) {
+        try {
+          const teamVolunteers = await getUsersByTeam(formData.teamId);
+          setVolunteers(teamVolunteers);
+        } catch (error) {
+          console.error('Error loading volunteers:', error);
+          setVolunteers([]);
+        }
+      } else {
+        setVolunteers([]);
+      }
+    };
+
+    loadVolunteers();
+  }, [formData.teamId]);
+
+  // Reset team and volunteer when branch changes
+  const handleBranchChange = (branchId: string) => {
+    setFormData(prev => ({ 
+      ...prev, 
+      branchId, 
+      teamId: '', 
+      volunteerId: '' 
+    }));
+    setVolunteers([]);
+    setBranchTeams([]);
+  };
+
+  const handleTeamChange = (teamId: string) => {
+    setFormData(prev => ({ 
+      ...prev, 
+      teamId, 
+      volunteerId: '' 
+    }));
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -38,8 +111,8 @@ export default function TransactionInput() {
         alert('Ukuran file maksimal 5MB');
         return;
       }
-      if (!['image/jpeg', 'image/png'].includes(file.type)) {
-        alert('Hanya file JPG dan PNG yang diperbolehkan');
+      if (!['image/jpeg', 'image/png', 'image/jpg', 'image/gif', 'image/webp'].includes(file.type)) {
+        alert('Hanya file JPG, PNG, GIF, dan WebP yang diperbolehkan');
         return;
       }
       setFormData({ ...formData, proofImage: file });
@@ -51,19 +124,22 @@ export default function TransactionInput() {
     setIsSubmitting(true);
     
     try {
-      const transactionData = {
-        branch_id: formData.branchId,
-        team_id: formData.teamId,
-        volunteer_id: formData.volunteerId,
-        program_id: formData.programId,
-        donor_name: formData.donorName,
-        amount: parseInt(formData.amount),
-        transfer_method: formData.transferMethod,
-        datetime: formData.datetime,
-        proof_image: formData.proofImage
-      };
+      const formDataToSend = new FormData();
+      formDataToSend.append('branch_id', formData.branchId);
+      formDataToSend.append('team_id', formData.teamId);
+      formDataToSend.append('volunteer_id', formData.volunteerId);
+      formDataToSend.append('program_type', formData.programType);
+      formDataToSend.append('program_id', formData.programId);
+      formDataToSend.append('donor_name', formData.donorName);
+      formDataToSend.append('amount', formData.amount);
+      formDataToSend.append('transaction_date', formData.datetime);
+      formDataToSend.append('transfer_method', formData.transferMethod);
       
-      await createTransaction(transactionData);
+      if (formData.proofImage) {
+        formDataToSend.append('proof_image', formData.proofImage);
+      }
+      
+      await createTransaction(formDataToSend);
       
       alert('Transaksi berhasil disimpan!');
       
@@ -76,7 +152,7 @@ export default function TransactionInput() {
         programId: '',
         donorName: '',
         amount: '',
-        transferMethod: 'BRI',
+        transferMethod: '',
         proofImage: null,
         datetime: new Date().toISOString().slice(0, 16)
       });
@@ -103,7 +179,7 @@ export default function TransactionInput() {
       <div className="max-w-4xl mx-auto">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {/* Branch Selection */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -111,12 +187,7 @@ export default function TransactionInput() {
                 </label>
                 <select
                   value={formData.branchId}
-                  onChange={(e) => setFormData({ 
-                    ...formData, 
-                    branchId: e.target.value, 
-                    teamId: '',
-                    volunteerId: ''
-                  })}
+                  onChange={(e) => handleBranchChange(e.target.value)}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   required
                   disabled={user?.role === 'volunteer'}
@@ -135,18 +206,46 @@ export default function TransactionInput() {
                 </label>
                 <select
                   value={formData.teamId}
-                  onChange={(e) => setFormData({ ...formData, teamId: e.target.value, volunteerId: '' })}
+                  onChange={(e) => handleTeamChange(e.target.value)}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   required
                   disabled={!formData.branchId || user?.role === 'volunteer'}
                 >
-                  <option value="">Pilih Tim</option>
-                  {filteredTeams.map(team => (
+                  <option value="">
+                    {!formData.branchId ? 'Pilih cabang terlebih dahulu' : 
+                     branchTeams.length === 0 ? 'Tidak ada tim tersedia' : 'Pilih Tim'}
+                  </option>
+                  {branchTeams.map(team => (
                     <option key={team.id} value={team.id}>{team.name}</option>
                   ))}
                 </select>
               </div>
 
+              {/* Volunteer Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Relawan *
+                </label>
+                <select
+                  value={formData.volunteerId}
+                  onChange={(e) => setFormData({ ...formData, volunteerId: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                  disabled={!formData.teamId || user?.role === 'volunteer'}
+                >
+                  <option value="">
+                    {!formData.teamId ? 'Pilih tim terlebih dahulu' : 
+                     filteredVolunteers.length === 0 ? 'Tidak ada relawan tersedia' : 'Pilih Relawan'}
+                  </option>
+                  {filteredVolunteers.map(volunteer => (
+                    <option key={volunteer.id} value={volunteer.id}>{volunteer.name}</option>
+                  ))}
+                </select>
+              </div>
+
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Program Type */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -212,8 +311,9 @@ export default function TransactionInput() {
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   required
                 >
-                  {transferMethods.map(method => (
-                    <option key={method} value={method}>{method}</option>
+                  <option value="">Pilih Metode Transfer</option>
+                  {paymentMethods.map(method => (
+                    <option key={method.id} value={method.name}>{method.name}</option>
                   ))}
                 </select>
               </div>
@@ -240,7 +340,7 @@ export default function TransactionInput() {
                 Nominal Donasi *
               </label>
               <div className="relative">
-                <DollarSign className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+                <span className="text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2 font-medium">Rp</span>
                 <input
                   type="text"
                   value={formatCurrency(formData.amount)}
@@ -266,20 +366,20 @@ export default function TransactionInput() {
               <div className="border-2 border-dashed border-gray-300 rounded-lg p-6">
                 <div className="text-center">
                   <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                  <div className="flex text-sm text-gray-600">
+                  <div className="text-center text-sm text-gray-600">
                     <label className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
                       <span>Upload file</span>
                       <input
                         type="file"
                         className="sr-only"
-                        accept="image/jpeg,image/png"
+                        accept="image/jpeg,image/png,image/jpg,image/gif,image/webp"
                         onChange={handleFileChange}
                         required
                       />
                     </label>
-                    <p className="pl-1">atau drag and drop</p>
+                    <span className="ml-1">atau drag and drop</span>
                   </div>
-                  <p className="text-xs text-gray-500">JPG atau PNG, maksimal 5MB</p>
+                  <p className="text-xs text-gray-500">JPG, PNG, GIF, atau WebP, maksimal 5MB</p>
                   {formData.proofImage && (
                     <p className="text-sm text-green-600 mt-2">
                       File terpilih: {formData.proofImage.name}
@@ -304,7 +404,7 @@ export default function TransactionInput() {
                 className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
               >
                 {isSubmitting ? <Loader className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-                <span>{isSubmitting ? 'Menyimpan...' : 'Simpan Transaksi'}</span>
+                <span>{isSubmitting ? 'Menyimpan...' : 'Tambah Transaksi'}</span>
               </button>
             </div>
           </form>

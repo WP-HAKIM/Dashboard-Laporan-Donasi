@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
-import { Search, Filter, Eye, Edit, Trash2, Plus, Loader } from 'lucide-react';
+import { Search, Filter, Eye, Edit, Trash2, Plus, Loader, X, Calendar } from 'lucide-react';
 import { Transaction } from '../../types';
-import { useAuthContext } from '../../hooks/useAuth';
+import { useAuth } from '../../hooks/useAuth';
 import { useTransactions } from '../../hooks/useTransactions';
 import { useBranches } from '../../hooks/useBranches';
 import { useTeams } from '../../hooks/useTeams';
 import { usePrograms } from '../../hooks/usePrograms';
 
 export default function MyTransactions() {
-  const { user } = useAuthContext();
+  const { user } = useAuth();
   const { transactions, isLoading, error, deleteTransaction } = useTransactions();
   const { branches } = useBranches();
   const { teams } = useTeams();
@@ -20,6 +20,13 @@ export default function MyTransactions() {
     status: '',
     programType: ''
   });
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [imageLoadError, setImageLoadError] = useState<{[key: string]: boolean}>({});
+  const [isDateRangeModalOpen, setIsDateRangeModalOpen] = useState(false);
+  const [tempDateFrom, setTempDateFrom] = useState('');
+  const [tempDateTo, setTempDateTo] = useState('');
+  const [datePreset, setDatePreset] = useState('all');
 
   // Filter transactions based on user role
   const getUserTransactions = () => {
@@ -33,27 +40,48 @@ export default function MyTransactions() {
 
   const filteredTransactions = getUserTransactions().filter(transaction => {
     const matchesSearch = 
-      transaction.donorName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      transaction.id.toLowerCase().includes(searchTerm.toLowerCase());
+      (transaction.donorName?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+      (transaction.id?.toLowerCase() || '').includes(searchTerm.toLowerCase());
     
-    const matchesDateFrom = !filters.dateFrom || new Date(transaction.createdAt) >= new Date(filters.dateFrom);
-    const matchesDateTo = !filters.dateTo || new Date(transaction.createdAt) <= new Date(filters.dateTo);
+    const transactionDate = transaction.transaction_date || transaction.transactionDate || transaction.created_at || transaction.createdAt;
+    const matchesDateFrom = !filters.dateFrom || new Date(transactionDate) >= new Date(filters.dateFrom);
+    const matchesDateTo = !filters.dateTo || new Date(transactionDate) <= new Date(filters.dateTo);
     const matchesStatus = !filters.status || transaction.status === filters.status;
     const matchesProgram = !filters.programType || transaction.programType === filters.programType;
 
     return matchesSearch && matchesDateFrom && matchesDateTo && matchesStatus && matchesProgram;
   });
 
-  const getBranchName = (branchId: string) => {
-    return branches.find(b => b.id === branchId)?.name || '-';
+  const getBranchName = (transaction: Transaction) => {
+    return transaction.branch?.name || branches.find(b => b.id === transaction.branchId)?.name || '-';
   };
 
-  const getTeamName = (teamId: string) => {
-    return teams.find(t => t.id === teamId)?.name || '-';
+  const getTeamName = (transaction: Transaction) => {
+    return transaction.team?.name || teams.find(t => t.id === transaction.teamId)?.name || '-';
   };
 
-  const getProgramName = (programId: string) => {
-    return programs.find(p => p.id === programId)?.name || '-';
+  const getProgramName = (transaction: Transaction) => {
+    return transaction.program?.name || programs.find(p => p.id === transaction.programId)?.name || '-';
+  };
+
+  const getVolunteerName = (transaction: Transaction) => {
+    return transaction.volunteer?.name || '-';
+  };
+
+  const formatDate = (dateString: string) => {
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) {
+        return '-';
+      }
+      return date.toLocaleDateString('id-ID', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    } catch (error) {
+      return '-';
+    }
   };
 
   const formatCurrency = (amount: number) => {
@@ -90,6 +118,110 @@ export default function MyTransactions() {
 
   const canEdit = (transaction: Transaction) => {
     return transaction.status === 'pending';
+  };
+
+  const handleViewProof = (transaction: Transaction) => {
+    if (transaction.proof_image || transaction.proofImage) {
+      const imageUrl = transaction.proof_image || transaction.proofImage;
+      // Handle both relative and absolute URLs
+      const fullImageUrl = imageUrl.startsWith('http') 
+        ? imageUrl 
+        : `http://localhost:8000/storage/${imageUrl}`;
+      setSelectedImage(fullImageUrl);
+      setShowImageModal(true);
+      // Reset error state when opening new image
+      setImageLoadError(prev => ({ ...prev, [transaction.id]: false }));
+    } else {
+      alert('Tidak ada bukti gambar untuk transaksi ini');
+    }
+  };
+
+  const handleImageError = (transactionId: string) => {
+    setImageLoadError(prev => ({ ...prev, [transactionId]: true }));
+    console.error('Error loading image for transaction:', transactionId);
+    alert('Gagal memuat gambar bukti transaksi');
+    setShowImageModal(false);
+  };
+
+  const isProofButtonDisabled = (transaction: Transaction) => {
+    const hasProofImage = !!(transaction.proof_image || transaction.proofImage);
+    const hasLoadError = imageLoadError[transaction.id];
+    return !hasProofImage || hasLoadError;
+  };
+
+  const handleDateFilterChange = (preset: string) => {
+    if (preset === 'custom') {
+      setTempDateFrom(filters.dateFrom);
+      setTempDateTo(filters.dateTo);
+      setIsDateRangeModalOpen(true);
+    } else {
+      setDatePreset(preset);
+      // Apply preset logic
+      const now = new Date();
+      let dateFrom = '';
+      let dateTo = '';
+      
+      switch (preset) {
+        case 'current_month':
+          dateFrom = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+          dateTo = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+          break;
+        case '1_month_back':
+          dateFrom = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0];
+          dateTo = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split('T')[0];
+          break;
+        case '2_months_back':
+          dateFrom = new Date(now.getFullYear(), now.getMonth() - 2, 1).toISOString().split('T')[0];
+          dateTo = new Date(now.getFullYear(), now.getMonth() - 1, 0).toISOString().split('T')[0];
+          break;
+        case 'last_3_months':
+          dateFrom = new Date(now.getFullYear(), now.getMonth() - 2, 1).toISOString().split('T')[0];
+          dateTo = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+          break;
+        case 'all':
+        default:
+          dateFrom = '';
+          dateTo = '';
+          break;
+      }
+      
+      setFilters({ ...filters, dateFrom, dateTo });
+    }
+  };
+
+  const handleDateRangeSubmit = () => {
+    if (tempDateFrom && tempDateTo) {
+      setDatePreset('custom');
+      setFilters({ 
+        ...filters, 
+        dateFrom: tempDateFrom, 
+        dateTo: tempDateTo 
+      });
+      setIsDateRangeModalOpen(false);
+    }
+  };
+
+  const handleDateRangeCancel = () => {
+    setTempDateFrom('');
+    setTempDateTo('');
+    setIsDateRangeModalOpen(false);
+  };
+
+  const getCurrentDateFilterLabel = () => {
+    if (datePreset === 'custom' && filters.dateFrom && filters.dateTo) {
+      const startDate = new Date(filters.dateFrom).toLocaleDateString('id-ID');
+      const endDate = new Date(filters.dateTo).toLocaleDateString('id-ID');
+      return `${startDate} - ${endDate}`;
+    }
+    const presetLabels = {
+      'current_month': 'Bulan Ini',
+      '1_month_back': '1 Bulan Lalu',
+      '2_months_back': '2 Bulan Lalu',
+      'last_3_months': '3 Bulan Terakhir',
+      'all': 'Semua Tanggal',
+      'custom': 'Pilih Tanggal'
+    };
+    return presetLabels[datePreset as keyof typeof presetLabels] || 'Semua Tanggal';
   };
 
   const handleDelete = async (id: string) => {
@@ -205,28 +337,43 @@ export default function MyTransactions() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Tanggal Dari
+              Filter Tanggal
             </label>
-            <input
-              type="date"
-              value={filters.dateFrom}
-              onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Tanggal Sampai
-            </label>
-            <input
-              type="date"
-              value={filters.dateTo}
-              onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
+            <div className="flex gap-2">
+              <select
+                value={datePreset}
+                onChange={(e) => handleDateFilterChange(e.target.value)}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="all">Semua Tanggal</option>
+                <option value="current_month">Bulan Ini</option>
+                <option value="1_month_back">1 Bulan Lalu</option>
+                <option value="2_months_back">2 Bulan Lalu</option>
+                <option value="last_3_months">3 Bulan Terakhir</option>
+                <option value="custom">Pilih Tanggal</option>
+              </select>
+              {datePreset === 'custom' && (
+                <button
+                  onClick={() => {
+                    setTempDateFrom(filters.dateFrom);
+                    setTempDateTo(filters.dateTo);
+                    setIsDateRangeModalOpen(true);
+                  }}
+                  className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1"
+                  title="Pilih rentang tanggal"
+                >
+                  <Calendar className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            {datePreset === 'custom' && filters.dateFrom && filters.dateTo && (
+              <div className="mt-1 text-xs text-gray-600">
+                {getCurrentDateFilterLabel()}
+              </div>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -265,13 +412,15 @@ export default function MyTransactions() {
 
       {/* Transactions Table */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="p-6 border-b border-gray-200">
+        <div className="p-4 sm:p-6 border-b border-gray-200">
           <h2 className="text-lg font-semibold">
             Daftar Transaksi ({filteredTransactions.length})
           </h2>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
+        
+        {/* Desktop Table View */}
+        <div className="hidden lg:block overflow-x-auto">
+          <table className="w-full min-w-[1000px]">
             <thead className="bg-gray-50">
               <tr>
                 <th className="text-left py-4 px-6 font-medium text-gray-700">ID</th>
@@ -279,6 +428,7 @@ export default function MyTransactions() {
                 {user?.role === 'branch' && (
                   <th className="text-left py-4 px-6 font-medium text-gray-700">Tim</th>
                 )}
+                <th className="text-left py-4 px-6 font-medium text-gray-700">Relawan</th>
                 <th className="text-left py-4 px-6 font-medium text-gray-700">Program</th>
                 <th className="text-left py-4 px-6 font-medium text-gray-700">Nominal</th>
                 <th className="text-left py-4 px-6 font-medium text-gray-700">Bank</th>
@@ -291,17 +441,18 @@ export default function MyTransactions() {
               {filteredTransactions.map((transaction) => (
                 <tr key={transaction.id} className="border-b border-gray-100">
                   <td className="py-4 px-6 text-gray-600">#{transaction.id}</td>
-                  <td className="py-4 px-6 font-medium">{transaction.donorName}</td>
+                  <td className="py-4 px-6 font-medium">{transaction.donorName || '-'}</td>
                   {user?.role === 'branch' && (
-                    <td className="py-4 px-6">{getTeamName(transaction.teamId)}</td>
+                    <td className="py-4 px-6">{getTeamName(transaction)}</td>
                   )}
-                  <td className="py-4 px-6">{getProgramName(transaction.programId)}</td>
+                  <td className="py-4 px-6">{getVolunteerName(transaction)}</td>
+                  <td className="py-4 px-6">{getProgramName(transaction)}</td>
                   <td className="py-4 px-6 font-medium text-green-600">
                     {formatCurrency(transaction.amount)}
                   </td>
-                  <td className="py-4 px-6">{transaction.transferMethod}</td>
+                  <td className="py-4 px-6">{transaction.transferMethod || '-'}</td>
                   <td className="py-4 px-6 text-gray-600">
-                    {new Date(transaction.createdAt).toLocaleDateString('id-ID')}
+                    {formatDate(transaction.transaction_date || transaction.transactionDate || transaction.created_at || transaction.createdAt)}
                   </td>
                   <td className="py-4 px-6">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(transaction.status)}`}>
@@ -313,7 +464,12 @@ export default function MyTransactions() {
                   </td>
                   <td className="py-4 px-6">
                     <div className="flex space-x-2">
-                      <button className="text-blue-600 hover:text-blue-800" title="Lihat Detail">
+                      <button 
+                        onClick={() => handleViewProof(transaction)}
+                        className="text-blue-600 hover:text-blue-800 disabled:text-gray-400" 
+                        disabled={isProofButtonDisabled(transaction)}
+                        title={isProofButtonDisabled(transaction) ? 'Tidak ada bukti gambar atau gagal memuat' : 'Lihat bukti transaksi'}
+                      >
                         <Eye className="w-4 h-4" />
                       </button>
                       {canEdit(transaction) && (
@@ -337,6 +493,86 @@ export default function MyTransactions() {
             </tbody>
           </table>
         </div>
+        
+        {/* Mobile/Tablet Card View */}
+        <div className="lg:hidden">
+          {filteredTransactions.map((transaction) => (
+            <div key={transaction.id} className="border-b border-gray-100 p-4">
+              <div className="flex justify-between items-start mb-3">
+                <div>
+                  <h3 className="font-medium text-gray-900">#{transaction.id}</h3>
+                  <p className="text-sm text-gray-600">{transaction.donorName || '-'}</p>
+                </div>
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(transaction.status)}`}>
+                  {getStatusLabel(transaction.status)}
+                </span>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-3 text-sm mb-3">
+                <div>
+                  <span className="text-gray-500">Nominal:</span>
+                  <p className="font-medium text-green-600">{formatCurrency(transaction.amount)}</p>
+                </div>
+                <div>
+                  <span className="text-gray-500">Tanggal:</span>
+                  <p className="text-gray-900">
+                    {formatDate(transaction.transaction_date || transaction.transactionDate || transaction.created_at || transaction.createdAt)}
+                  </p>
+                </div>
+                {user?.role === 'branch' && (
+                  <div>
+                    <span className="text-gray-500">Tim:</span>
+                    <p className="text-gray-900">{getTeamName(transaction)}</p>
+                  </div>
+                )}
+                <div>
+                  <span className="text-gray-500">Relawan:</span>
+                  <p className="text-gray-900">{getVolunteerName(transaction)}</p>
+                </div>
+                <div>
+                  <span className="text-gray-500">Program:</span>
+                  <p className="text-gray-900">{getProgramName(transaction)}</p>
+                </div>
+                <div>
+                  <span className="text-gray-500">Bank:</span>
+                  <p className="text-gray-900">{transaction.transferMethod || '-'}</p>
+                </div>
+              </div>
+              
+              {transaction.statusReason && (
+                <div className="mb-3">
+                  <span className="text-gray-500 text-sm">Alasan:</span>
+                  <p className="text-gray-900 text-sm">{transaction.statusReason}</p>
+                </div>
+              )}
+              
+              <div className="flex justify-end space-x-3">
+                <button 
+                  onClick={() => handleViewProof(transaction)}
+                  className="text-blue-600 hover:text-blue-800 disabled:text-gray-400 p-2" 
+                  disabled={isProofButtonDisabled(transaction)}
+                  title={isProofButtonDisabled(transaction) ? 'Tidak ada bukti gambar atau gagal memuat' : 'Lihat bukti transaksi'}
+                >
+                  <Eye className="w-4 h-4" />
+                </button>
+                {canEdit(transaction) && (
+                  <>
+                    <button className="text-green-600 hover:text-green-800 p-2" title="Edit">
+                      <Edit className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(transaction.id)}
+                      className="text-red-600 hover:text-red-800 p-2"
+                      title="Hapus"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
 
         {filteredTransactions.length === 0 && (
           <div className="text-center py-12">
@@ -344,6 +580,107 @@ export default function MyTransactions() {
           </div>
         )}
       </div>
+
+      {/* Image Modal */}
+      {showImageModal && selectedImage && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50" onClick={() => setShowImageModal(false)}>
+          <div className="relative max-w-4xl max-h-[90vh] mx-4" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => setShowImageModal(false)}
+              className="absolute top-4 right-4 text-white bg-black bg-opacity-50 rounded-full p-2 hover:bg-opacity-75 transition-all z-10"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <img
+              src={selectedImage}
+              alt="Bukti Transaksi"
+              className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl"
+              onError={() => {
+                const transactionId = filteredTransactions.find(t => 
+                  (t.proof_image && selectedImage.includes(t.proof_image)) || 
+                  (t.proofImage && selectedImage.includes(t.proofImage))
+                )?.id;
+                if (transactionId) {
+                  handleImageError(transactionId);
+                }
+              }}
+            />
+            <div className="absolute bottom-4 left-4 right-4 text-center">
+              <p className="text-white bg-black bg-opacity-50 rounded-lg px-4 py-2 inline-block">
+                Bukti Transaksi - Klik di luar gambar atau tombol X untuk menutup
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Date Range Modal */}
+      {isDateRangeModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">Pilih Rentang Tanggal</h3>
+              <button
+                onClick={handleDateRangeCancel}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Tanggal Mulai
+                </label>
+                <input
+                  type="date"
+                  value={tempDateFrom}
+                  onChange={(e) => setTempDateFrom(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Tanggal Akhir
+                </label>
+                <input
+                  type="date"
+                  value={tempDateTo}
+                  onChange={(e) => setTempDateTo(e.target.value)}
+                  min={tempDateFrom}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                />
+              </div>
+              
+              {tempDateFrom && tempDateTo && tempDateFrom > tempDateTo && (
+                <div className="text-red-600 text-sm">
+                  Tanggal akhir harus setelah tanggal mulai
+                </div>
+              )}
+            </div>
+            
+            <div className="flex gap-3 p-6 border-t border-gray-200">
+              <button
+                onClick={handleDateRangeCancel}
+                className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleDateRangeSubmit}
+                disabled={!tempDateFrom || !tempDateTo || tempDateFrom > tempDateTo}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Terapkan Filter
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -3,9 +3,13 @@ export interface User {
   name: string;
   email: string;
   phone: string;
+  // Frontend camelCase fields
   branchId: string;
   teamId: string;
   role: 'admin' | 'validator' | 'volunteer' | 'branch';
+  // Backend snake_case fields
+  branch_id?: string;
+  team_id?: string;
 }
 
 export interface Branch {
@@ -18,9 +22,12 @@ export interface Branch {
 export interface Team {
   id: string;
   name: string;
+  // Frontend camelCase fields
   branchId: string;
   code: string;
   branch?: Branch;
+  // Backend snake_case fields
+  branch_id?: string;
 }
 
 export interface Program {
@@ -34,21 +41,46 @@ export interface Program {
 }
 
 export interface Transaction {
-  id: string;
-  branchId: string;
-  teamId: string;
-  volunteerId: string;
-  programType: 'ZISWAF' | 'QURBAN';
-  programId: string;
-  donorName: string;
+  id: number;
+  // Backend snake_case fields (primary)
+  branch_id: number;
+  team_id: number;
+  volunteer_id: number;
+  program_type: 'ZISWAF' | 'QURBAN';
+  program_id: number;
+  donor_name: string;
   amount: number;
-  transferMethod: string;
-  proofImage?: string;
+  transaction_date: string;
+  transfer_method: string;
+  proof_image?: string;
   status: 'pending' | 'valid' | 'double_duta' | 'double_input' | 'not_in_account' | 'other';
-  statusReason?: string;
-  createdAt: string;
-  validatedAt?: string;
-  validatedBy?: string;
+  status_reason?: string;
+  validated_at?: string;
+  validated_by?: number;
+  created_at: string;
+  updated_at: string;
+  
+  // Nested relations from backend
+  branch?: Branch;
+  team?: Team;
+  volunteer?: User;
+  program?: Program;
+  validator?: User;
+  
+  // Frontend camelCase compatibility fields (from backend accessors)
+  branchId?: number;
+  teamId?: number;
+  volunteerId?: number;
+  programId?: number;
+  donorName?: string;
+  transferMethod?: string;
+  transactionDate?: string;
+  createdAt?: string;
+  
+  // Additional fields that might exist
+  volunteer_name?: string;
+  team_name?: string;
+  proofImage?: string;
 }
 
 export interface DashboardStats {
