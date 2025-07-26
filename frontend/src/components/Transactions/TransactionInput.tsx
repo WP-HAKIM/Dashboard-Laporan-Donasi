@@ -27,13 +27,17 @@ export default function TransactionInput() {
     programType: 'ZISWAF' as 'ZISWAF' | 'QURBAN',
     programId: '',
     donorName: '',
+    qurbanOwnerName: '',
     amount: '',
+    qurbanAmount: '',
+    ziswafProgramId: '',
     transferMethod: '',
     proofImage: null as File | null,
     datetime: new Date().toISOString().slice(0, 16)
   });
 
   const filteredPrograms = programs.filter(program => program.type === formData.programType);
+  const ziswaafPrograms = programs.filter(program => program.type === 'ZISWAF');
   // Handle different team ID formats from backend for volunteers
   const filteredVolunteers = volunteers.filter(volunteer => {
     const volunteerTeamId = volunteer.teamId || (volunteer as any).team_id || volunteer.team?.id;
@@ -131,7 +135,26 @@ export default function TransactionInput() {
       formDataToSend.append('program_type', formData.programType);
       formDataToSend.append('program_id', formData.programId);
       formDataToSend.append('donor_name', formData.donorName);
-      formDataToSend.append('amount', formData.amount);
+      
+      // Add qurban fields if program type is QURBAN
+      if (formData.programType === 'QURBAN') {
+        if (formData.qurbanOwnerName) {
+          formDataToSend.append('qurban_owner_name', formData.qurbanOwnerName);
+        }
+        if (formData.qurbanAmount) {
+          formDataToSend.append('qurban_amount', formData.qurbanAmount);
+        }
+      }
+      
+      // Add ziswaf fields if selected
+      if (formData.ziswafProgramId) {
+        formDataToSend.append('ziswaf_program_id', formData.ziswafProgramId);
+      }
+      
+      // Add amount only if it's filled or required (ZISWAF or QURBAN with ziswaf program)
+      if (formData.amount || formData.programType === 'ZISWAF' || formData.ziswafProgramId) {
+        formDataToSend.append('amount', formData.amount || '0');
+      }
       formDataToSend.append('transaction_date', formData.datetime);
       formDataToSend.append('transfer_method', formData.transferMethod);
       
@@ -151,7 +174,10 @@ export default function TransactionInput() {
         programType: 'ZISWAF',
         programId: '',
         donorName: '',
+        qurbanOwnerName: '',
         amount: '',
+        qurbanAmount: '',
+        ziswafProgramId: '',
         transferMethod: '',
         proofImage: null,
         datetime: new Date().toISOString().slice(0, 16)
@@ -266,25 +292,49 @@ export default function TransactionInput() {
                 </select>
               </div>
 
-              {/* Program Selection */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Program *
-                </label>
-                <select
-                  value={formData.programId}
-                  onChange={(e) => setFormData({ ...formData, programId: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                >
-                  <option value="">Pilih Program</option>
-                  {filteredPrograms.map(program => (
-                    <option key={program.id} value={program.id}>
-                      {program.name} ({program.code})
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {/* Program Selection for ZISWAF */}
+              {formData.programType === 'ZISWAF' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Program *
+                  </label>
+                  <select
+                    value={formData.programId}
+                    onChange={(e) => setFormData({ ...formData, programId: e.target.value })}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  >
+                    <option value="">Pilih Program</option>
+                    {ziswaafPrograms.map(program => (
+                      <option key={program.id} value={program.id}>
+                        {program.name} ({program.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Type Hewan Qurban for QURBAN */}
+              {formData.programType === 'QURBAN' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Type Hewan Qurban *
+                  </label>
+                  <select
+                    value={formData.programId}
+                    onChange={(e) => setFormData({ ...formData, programId: e.target.value })}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  >
+                    <option value="">Pilih Type Hewan Qurban</option>
+                    {filteredPrograms.map(program => (
+                      <option key={program.id} value={program.id}>
+                        {program.name} ({program.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {/* Date and Time */}
               <div>
@@ -334,29 +384,97 @@ export default function TransactionInput() {
               />
             </div>
 
-            {/* Amount */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Nominal Donasi *
-              </label>
-              <div className="relative">
-                <span className="text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2 font-medium">Rp</span>
+            {/* Nama Pengqurban - Only for QURBAN */}
+            {formData.programType === 'QURBAN' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Nama Pengqurban *
+                </label>
                 <input
                   type="text"
-                  value={formatCurrency(formData.amount)}
-                  onChange={(e) => {
-                    const value = e.target.value.replace(/\D/g, '');
-                    setFormData({ ...formData, amount: value });
-                  }}
-                  className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="0"
+                  value={formData.qurbanOwnerName}
+                  onChange={(e) => setFormData({ ...formData, qurbanOwnerName: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Masukkan nama pengqurban"
                   required
                 />
               </div>
-              <p className="text-sm text-gray-500 mt-1">
-                Nilai: Rp {parseInt(formData.amount) || 0}
-              </p>
-            </div>
+            )}
+
+            {/* Nominal Qurban - Only for QURBAN */}
+            {formData.programType === 'QURBAN' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Nominal Qurban *
+                </label>
+                <div className="relative">
+                  <span className="text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2 font-medium">Rp</span>
+                  <input
+                    type="text"
+                    value={formatCurrency(formData.qurbanAmount)}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/\D/g, '');
+                      setFormData({ ...formData, qurbanAmount: value });
+                    }}
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="0"
+                    required
+                  />
+                </div>
+                <p className="text-sm text-gray-500 mt-1">
+                  Nilai: Rp {parseInt(formData.qurbanAmount) || 0}
+                </p>
+              </div>
+            )}
+
+            {/* Program ZISWAF - Optional for QURBAN */}
+            {formData.programType === 'QURBAN' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Program ZISWAF (Opsional)
+                </label>
+                <select
+                  value={formData.ziswafProgramId}
+                  onChange={(e) => setFormData({ ...formData, ziswafProgramId: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">Pilih Program ZISWAF (Opsional)</option>
+                  {ziswaafPrograms.map(program => (
+                    <option key={program.id} value={program.id}>
+                      {program.name} ({program.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+
+
+            {/* Amount - Always visible for ZISWAF, only visible for QURBAN when ZISWAF program selected */}
+            {(formData.programType === 'ZISWAF' || (formData.programType === 'QURBAN' && formData.ziswafProgramId)) && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Nominal Donasi *
+                </label>
+                <div className="relative">
+                  <span className="text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2 font-medium">Rp</span>
+                  <input
+                    type="text"
+                    value={formatCurrency(formData.amount)}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/\D/g, '');
+                      setFormData({ ...formData, amount: value });
+                    }}
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="0"
+                    required
+                  />
+                </div>
+                <p className="text-sm text-gray-500 mt-1">
+                  Nilai: Rp {parseInt(formData.amount) || 0}
+                </p>
+              </div>
+            )}
 
             {/* File Upload */}
             <div>

@@ -14,6 +14,9 @@ class Transaction extends Model
         'program_type',
         'program_id',
         'donor_name',
+        'qurban_owner_name',
+        'qurban_amount',
+        'ziswaf_program_id',
         'amount',
         'transaction_date',
         'volunteer_rate',
@@ -28,6 +31,7 @@ class Transaction extends Model
 
     protected $casts = [
         'amount' => 'decimal:2',
+        'qurban_amount' => 'decimal:2',
         'transaction_date' => 'datetime',
         'volunteer_rate' => 'decimal:2',
         'branch_rate' => 'decimal:2',
@@ -72,6 +76,11 @@ class Transaction extends Model
     public function program(): BelongsTo
     {
         return $this->belongsTo(Program::class);
+    }
+
+    public function ziswafProgram(): BelongsTo
+    {
+        return $this->belongsTo(Program::class, 'ziswaf_program_id');
     }
 
     public function validator(): BelongsTo

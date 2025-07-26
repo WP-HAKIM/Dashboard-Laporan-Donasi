@@ -60,6 +60,14 @@ export interface Transaction {
   created_at: string;
   updated_at: string;
   
+  // Qurban specific fields
+  qurban_owner_name?: string;
+  qurban_amount?: number;
+  
+  // Ziswaf program fields
+  ziswaf_program_id?: number;
+  ziswaf_program?: Program;
+  
   // Nested relations from backend
   branch?: Branch;
   team?: Team;

@@ -42,36 +42,36 @@ class TransactionController extends Controller
             $query->where('program_type', $request->program_type);
         }
 
-        // Filter by date range
+        // Filter by date range (using created_at)
         if ($request->has('date_from')) {
-            $query->whereDate('transaction_date', '>=', $request->date_from);
+            $query->whereDate('created_at', '>=', $request->date_from);
         }
 
         if ($request->has('date_to')) {
-            $query->whereDate('transaction_date', '<=', $request->date_to);
+            $query->whereDate('created_at', '<=', $request->date_to);
         }
 
         // Filter by date preset (current month, 1 month back, 2 months back)
         if ($request->has('date_preset')) {
             switch ($request->date_preset) {
                 case 'current_month':
-                    $query->whereMonth('transaction_date', now()->month)
-                          ->whereYear('transaction_date', now()->year);
+                    $query->whereMonth('created_at', now()->month)
+                          ->whereYear('created_at', now()->year);
                     break;
                 case '1_month_back':
                     $startDate = now()->subMonth()->startOfMonth();
                     $endDate = now()->subMonth()->endOfMonth();
-                    $query->whereBetween('transaction_date', [$startDate, $endDate]);
+                    $query->whereBetween('created_at', [$startDate, $endDate]);
                     break;
                 case '2_months_back':
                     $startDate = now()->subMonths(2)->startOfMonth();
                     $endDate = now()->subMonths(2)->endOfMonth();
-                    $query->whereBetween('transaction_date', [$startDate, $endDate]);
+                    $query->whereBetween('created_at', [$startDate, $endDate]);
                     break;
                 case 'last_3_months':
                     $startDate = now()->subMonths(2)->startOfMonth();
                     $endDate = now()->endOfMonth();
-                    $query->whereBetween('transaction_date', [$startDate, $endDate]);
+                    $query->whereBetween('created_at', [$startDate, $endDate]);
                     break;
             }
         }
@@ -85,18 +85,29 @@ class TransactionController extends Controller
      */
     public function store(Request $request)
     {
-        $request->validate([
+        $validationRules = [
             'branch_id' => 'required|exists:branches,id',
             'team_id' => 'required|exists:teams,id',
             'volunteer_id' => 'required|exists:users,id',
             'program_type' => 'required|in:ZISWAF,QURBAN',
             'program_id' => 'required|exists:programs,id',
             'donor_name' => 'required|string|max:255',
-            'amount' => 'required|numeric|min:0',
+            'qurban_owner_name' => 'nullable|string|max:255',
+            'qurban_amount' => 'nullable|numeric|min:0',
+            'ziswaf_program_id' => 'nullable|exists:programs,id',
             'transaction_date' => 'required|date',
             'transfer_method' => 'required|string|max:255',
             'proof_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
-        ]);
+        ];
+
+        // Amount is required for ZISWAF or when ziswaf_program_id is provided for QURBAN
+        if ($request->program_type === 'ZISWAF' || $request->ziswaf_program_id) {
+            $validationRules['amount'] = 'required|numeric|min:0';
+        } else {
+            $validationRules['amount'] = 'nullable|numeric|min:0';
+        }
+
+        $request->validate($validationRules);
 
         $data = $request->all();
 
@@ -130,18 +141,29 @@ class TransactionController extends Controller
      */
     public function update(Request $request, Transaction $transaction)
     {
-        $request->validate([
+        $validationRules = [
             'branch_id' => 'required|exists:branches,id',
             'team_id' => 'required|exists:teams,id',
             'volunteer_id' => 'required|exists:users,id',
             'program_type' => 'required|in:ZISWAF,QURBAN',
             'program_id' => 'required|exists:programs,id',
             'donor_name' => 'required|string|max:255',
-            'amount' => 'required|numeric|min:0',
+            'qurban_owner_name' => 'nullable|string|max:255',
+            'qurban_amount' => 'nullable|numeric|min:0',
+            'ziswaf_program_id' => 'nullable|exists:programs,id',
             'transaction_date' => 'required|date',
             'transfer_method' => 'required|string|max:255',
             'proof_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
-        ]);
+        ];
+
+        // Amount is required for ZISWAF or when ziswaf_program_id is provided for QURBAN
+        if ($request->program_type === 'ZISWAF' || $request->ziswaf_program_id) {
+            $validationRules['amount'] = 'required|numeric|min:0';
+        } else {
+            $validationRules['amount'] = 'nullable|numeric|min:0';
+        }
+
+        $request->validate($validationRules);
 
         $data = $request->all();
 

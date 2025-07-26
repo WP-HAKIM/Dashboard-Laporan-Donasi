@@ -43,9 +43,9 @@ export default function MyTransactions() {
       (transaction.donorName?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
       (transaction.id?.toLowerCase() || '').includes(searchTerm.toLowerCase());
     
-    const transactionDate = transaction.transaction_date || transaction.transactionDate || transaction.created_at || transaction.createdAt;
-    const matchesDateFrom = !filters.dateFrom || new Date(transactionDate) >= new Date(filters.dateFrom);
-    const matchesDateTo = !filters.dateTo || new Date(transactionDate) <= new Date(filters.dateTo);
+    const createdAt = transaction.created_at || transaction.createdAt;
+    const matchesDateFrom = !filters.dateFrom || new Date(createdAt) >= new Date(filters.dateFrom);
+    const matchesDateTo = !filters.dateTo || new Date(createdAt) <= new Date(filters.dateTo);
     const matchesStatus = !filters.status || transaction.status === filters.status;
     const matchesProgram = !filters.programType || transaction.programType === filters.programType;
 
@@ -61,7 +61,27 @@ export default function MyTransactions() {
   };
 
   const getProgramName = (transaction: Transaction) => {
-    return transaction.program?.name || programs.find(p => p.id === transaction.programId)?.name || '-';
+    const mainProgram = transaction.program?.name || programs.find(p => p.id === transaction.program_id)?.name || '-';
+    
+    if (transaction.program_type === 'QURBAN') {
+      const ziswafProgram = transaction.ziswaf_program?.name || 
+        (transaction.ziswaf_program_id ? programs.find(p => p.id === transaction.ziswaf_program_id)?.name : null);
+      
+      return (
+        <div className="space-y-1">
+          <div className="text-sm">
+            <span className="text-gray-600">Type Hewan:</span>
+            <span className="ml-1 font-medium">{mainProgram}</span>
+          </div>
+          <div className="text-sm">
+            <span className="text-gray-600">Program:</span>
+            <span className="ml-1 font-medium">{ziswafProgram || '-'}</span>
+          </div>
+        </div>
+      );
+    }
+    
+    return mainProgram;
   };
 
   const getVolunteerName = (transaction: Transaction) => {
@@ -448,11 +468,30 @@ export default function MyTransactions() {
                   <td className="py-4 px-6">{getVolunteerName(transaction)}</td>
                   <td className="py-4 px-6">{getProgramName(transaction)}</td>
                   <td className="py-4 px-6 font-medium text-green-600">
-                    {formatCurrency(transaction.amount)}
+                    {(transaction.program_type === 'QURBAN' && (transaction.qurban_amount || transaction.ziswaf_program_id)) ? (
+                      <div className="space-y-1">
+                         {transaction.qurban_amount && (
+                               <div className="text-sm">
+                                 <span className="text-gray-600">Nominal Qurban:</span>
+                                 <span className="ml-1 font-medium">{formatCurrency(transaction.qurban_amount || 0)}</span>
+                               </div>
+                             )}
+                             <div className="text-sm">
+                               <span className="text-gray-600">Nominal Donasi:</span>
+                               <span className="ml-1 font-medium">{formatCurrency(transaction.amount || 0)}</span>
+                             </div>
+                             <div className="text-sm border-t pt-1 mt-1">
+                               <span className="text-gray-600 font-semibold">Nominal Total:</span>
+                               <span className="ml-1 font-bold text-green-700">{formatCurrency((Number(transaction.qurban_amount) || 0) + (Number(transaction.amount) || 0))}</span>
+                             </div>
+                       </div>
+                    ) : (
+                      formatCurrency(transaction.amount)
+                    )}
                   </td>
                   <td className="py-4 px-6">{transaction.transferMethod || '-'}</td>
                   <td className="py-4 px-6 text-gray-600">
-                    {formatDate(transaction.transaction_date || transaction.transactionDate || transaction.created_at || transaction.createdAt)}
+                    {formatDate(transaction.created_at || transaction.createdAt)}
                   </td>
                   <td className="py-4 px-6">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(transaction.status)}`}>
@@ -511,12 +550,31 @@ export default function MyTransactions() {
               <div className="grid grid-cols-2 gap-3 text-sm mb-3">
                 <div>
                   <span className="text-gray-500">Nominal:</span>
-                  <p className="font-medium text-green-600">{formatCurrency(transaction.amount)}</p>
+                  {(transaction.program_type === 'QURBAN' && (transaction.qurban_amount || transaction.ziswaf_program_id)) ? (
+                    <div className="space-y-1">
+                       {transaction.qurban_amount && (
+                         <div className="text-sm">
+                           <span className="text-gray-600">Nominal Qurban:</span>
+                           <span className="ml-1 font-medium text-green-600">{formatCurrency(transaction.qurban_amount || 0)}</span>
+                         </div>
+                       )}
+                       <div className="text-sm">
+                          <span className="text-gray-600">Nominal Donasi:</span>
+                          <span className="ml-1 font-medium text-green-600">{formatCurrency(transaction.amount || 0)}</span>
+                        </div>
+                       <div className="text-sm border-t pt-1 mt-1">
+                         <span className="text-gray-600 font-semibold">Nominal Total:</span>
+                         <span className="ml-1 font-bold text-green-700">{formatCurrency((Number(transaction.qurban_amount) || 0) + (Number(transaction.amount) || 0))}</span>
+                       </div>
+                     </div>
+                  ) : (
+                    <p className="font-medium text-green-600">{formatCurrency(transaction.amount)}</p>
+                  )}
                 </div>
                 <div>
                   <span className="text-gray-500">Tanggal:</span>
                   <p className="text-gray-900">
-                    {formatDate(transaction.transaction_date || transaction.transactionDate || transaction.created_at || transaction.createdAt)}
+                    {formatDate(transaction.created_at || transaction.createdAt)}
                   </p>
                 </div>
                 {user?.role === 'branch' && (

@@ -64,7 +64,27 @@ export default function ValidationView() {
   };
 
   const getProgramName = (transaction: Transaction) => {
-    return transaction.program?.name || programs.find(p => p.id === transaction.programId)?.name || '-';
+    const mainProgram = transaction.program?.name || programs.find(p => p.id === transaction.program_id)?.name || '-';
+    
+    if (transaction.program_type === 'QURBAN') {
+      const ziswafProgram = transaction.ziswaf_program?.name || 
+        (transaction.ziswaf_program_id ? programs.find(p => p.id === transaction.ziswaf_program_id)?.name : null);
+      
+      return (
+        <div className="space-y-1">
+          <div className="text-sm">
+            <span className="text-gray-600">Type Hewan:</span>
+            <span className="ml-1 font-medium">{mainProgram}</span>
+          </div>
+          <div className="text-sm">
+            <span className="text-gray-600">Program:</span>
+            <span className="ml-1 font-medium">{ziswafProgram || '-'}</span>
+          </div>
+        </div>
+      );
+    }
+    
+    return mainProgram;
   };
 
   const getVolunteerName = (transaction: Transaction) => {
@@ -317,9 +337,9 @@ export default function ValidationView() {
   const uniqueData = getUniqueValues();
   
   const filteredTransactions = pendingTransactions.filter(transaction => {
-    const transactionDate = transaction.transaction_date || transaction.transactionDate || transaction.created_at || transaction.createdAt;
-    if (filters.dateFrom && new Date(transactionDate) < new Date(filters.dateFrom)) return false;
-    if (filters.dateTo && new Date(transactionDate) > new Date(filters.dateTo)) return false;
+    const createdAt = transaction.created_at || transaction.createdAt;
+    if (filters.dateFrom && new Date(createdAt) < new Date(filters.dateFrom)) return false;
+    if (filters.dateTo && new Date(createdAt) > new Date(filters.dateTo)) return false;
     if (filters.branchId && transaction.branchId !== filters.branchId) return false;
     if (filters.teamId && transaction.teamId !== filters.teamId) return false;
     
@@ -521,11 +541,33 @@ export default function ValidationView() {
                   <td className="py-4 px-6">{getVolunteerName(transaction)}</td>
                   <td className="py-4 px-6">{getProgramName(transaction)}</td>
                   <td className="py-4 px-6 font-medium text-green-600">
-                    {formatCurrency(transaction.amount)}
+                    {(transaction.program_type === 'QURBAN' && (transaction.qurban_amount || transaction.ziswaf_program_id)) ? (
+                      <div className="space-y-1">
+                        {transaction.qurban_amount && (
+                          <div className="text-sm">
+                            <span className="text-gray-600">Nominal Qurban:</span>
+                            <div className="font-medium">{formatCurrency(transaction.qurban_amount)}</div>
+                          </div>
+                        )}
+                        <div className="text-sm">
+                          <span className="text-gray-600">Nominal Donasi:</span>
+                          <div className="font-medium">{formatCurrency(transaction.amount || 0)}</div>
+                        </div>
+                        <div className="text-sm border-t pt-1 mt-1">
+                          <span className="text-gray-600 font-semibold">Nominal Total:</span>
+                          <div className="font-bold text-green-700">{formatCurrency((Number(transaction.qurban_amount) || 0) + (Number(transaction.amount) || 0))}</div>
+                        </div>
+                        {!transaction.qurban_amount && !transaction.amount && (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </div>
+                    ) : (
+                      formatCurrency(transaction.amount)
+                    )}
                   </td>
                   <td className="py-4 px-6">{transaction.transferMethod || '-'}</td>
                   <td className="py-4 px-6 text-gray-600">
-                    {formatDate(transaction.transaction_date || transaction.transactionDate || transaction.created_at || transaction.createdAt)}
+                    {formatDate(transaction.created_at || transaction.createdAt)}
                   </td>
                   <td className="py-4 px-6">
                     <button
@@ -571,7 +613,29 @@ export default function ValidationView() {
                 </div>
                 <div>
                   <span className="text-gray-500">Nominal:</span>
-                  <p className="font-medium text-green-600">{formatCurrency(transaction.amount)}</p>
+                  {(transaction.program_type === 'QURBAN' && (transaction.qurban_amount || transaction.ziswaf_program_id)) ? (
+                    <div className="space-y-1">
+                      {transaction.qurban_amount && (
+                        <div className="text-sm">
+                          <span className="text-gray-600">Qurban:</span>
+                          <span className="ml-1 font-medium text-green-600">{formatCurrency(transaction.qurban_amount)}</span>
+                        </div>
+                      )}
+                      <div className="text-sm">
+                        <span className="text-gray-600">Donasi:</span>
+                        <span className="ml-1 font-medium text-green-600">{formatCurrency(transaction.amount || 0)}</span>
+                      </div>
+                      <div className="text-sm border-t pt-1 mt-1">
+                        <span className="text-gray-600 font-semibold">Total:</span>
+                        <span className="ml-1 font-bold text-green-700">{formatCurrency((Number(transaction.qurban_amount) || 0) + (Number(transaction.amount) || 0))}</span>
+                      </div>
+                      {!transaction.qurban_amount && !transaction.amount && (
+                        <span className="font-medium text-gray-400">-</span>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="font-medium text-green-600">{formatCurrency(transaction.amount)}</p>
+                  )}
                 </div>
                 <div>
                   <span className="text-gray-500">Cabang:</span>
@@ -596,7 +660,7 @@ export default function ValidationView() {
                 <div>
                   <span className="text-gray-500">Tanggal:</span>
                   <p className="font-medium text-gray-600">
-                    {formatDate(transaction.transaction_date || transaction.transactionDate || transaction.created_at || transaction.createdAt)}
+                    {formatDate(transaction.created_at || transaction.createdAt)}
                   </p>
                 </div>
               </div>
