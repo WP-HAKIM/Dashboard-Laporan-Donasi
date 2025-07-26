@@ -44,6 +44,7 @@ class UserController extends Controller
         $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
+            'phone' => 'nullable|string|max:20',
             'password' => 'required|string|min:8',
             'role' => 'required|in:admin,validator,volunteer,branch',
             'branch_id' => 'nullable|exists:branches,id',
@@ -53,6 +54,7 @@ class UserController extends Controller
         $user = User::create([
             'name' => $request->name,
             'email' => $request->email,
+            'phone' => $request->phone,
             'password' => Hash::make($request->password),
             'role' => $request->role,
             'branch_id' => $request->branch_id,
@@ -84,6 +86,7 @@ class UserController extends Controller
                 'max:255',
                 Rule::unique('users')->ignore($user->id),
             ],
+            'phone' => 'nullable|string|max:20',
             'password' => 'nullable|string|min:8',
             'role' => 'required|in:admin,validator,volunteer,branch',
             'branch_id' => 'nullable|exists:branches,id',
@@ -93,6 +96,7 @@ class UserController extends Controller
         $updateData = [
             'name' => $request->name,
             'email' => $request->email,
+            'phone' => $request->phone,
             'role' => $request->role,
             'branch_id' => $request->branch_id,
             'team_id' => $request->team_id,

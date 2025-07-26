@@ -61,6 +61,7 @@ class UserSeeder extends Seeder
             [
                 'name' => 'Ahmad Volunteer',
                 'email' => 'ahmad@pabu.org',
+                'phone' => '081234567890',
                 'password' => Hash::make('password'),
                 'role' => 'volunteer',
                 'branch_id' => 1,
@@ -69,6 +70,7 @@ class UserSeeder extends Seeder
             [
                 'name' => 'Siti Volunteer',
                 'email' => 'siti@pabu.org',
+                'phone' => '081234567891',
                 'password' => Hash::make('password'),
                 'role' => 'VOLUNTEER',
                 'branch_id' => 1,
@@ -77,6 +79,7 @@ class UserSeeder extends Seeder
             [
                 'name' => 'Budi Volunteer',
                 'email' => 'budi@pabu.org',
+                'phone' => '081234567892',
                 'password' => Hash::make('password'),
                 'role' => 'VOLUNTEER',
                 'branch_id' => 2,
@@ -85,6 +88,7 @@ class UserSeeder extends Seeder
             [
                 'name' => 'Rina Volunteer',
                 'email' => 'rina@pabu.org',
+                'phone' => '081234567893',
                 'password' => Hash::make('password'),
                 'role' => 'VOLUNTEER',
                 'branch_id' => 2,

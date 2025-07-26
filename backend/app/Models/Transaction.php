@@ -15,6 +15,9 @@ class Transaction extends Model
         'program_id',
         'donor_name',
         'amount',
+        'transaction_date',
+        'volunteer_rate',
+        'branch_rate',
         'transfer_method',
         'proof_image',
         'status',
@@ -25,8 +28,31 @@ class Transaction extends Model
 
     protected $casts = [
         'amount' => 'decimal:2',
+        'transaction_date' => 'datetime',
+        'volunteer_rate' => 'decimal:2',
+        'branch_rate' => 'decimal:2',
         'validated_at' => 'datetime'
     ];
+
+    protected $appends = ['donorName', 'transferMethod', 'transactionDate'];
+
+    // Accessor untuk donorName (camelCase)
+    public function getDonorNameAttribute()
+    {
+        return $this->attributes['donor_name'] ?? null;
+    }
+
+    // Accessor untuk transferMethod (camelCase)
+    public function getTransferMethodAttribute()
+    {
+        return $this->attributes['transfer_method'] ?? null;
+    }
+
+    // Accessor untuk transactionDate (camelCase)
+    public function getTransactionDateAttribute()
+    {
+        return $this->attributes['transaction_date'] ?? null;
+    }
 
     public function branch(): BelongsTo
     {

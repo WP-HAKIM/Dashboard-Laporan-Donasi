@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Transaction;
+use App\Models\Program;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
@@ -41,6 +42,40 @@ class TransactionController extends Controller
             $query->where('program_type', $request->program_type);
         }
 
+        // Filter by date range
+        if ($request->has('date_from')) {
+            $query->whereDate('transaction_date', '>=', $request->date_from);
+        }
+
+        if ($request->has('date_to')) {
+            $query->whereDate('transaction_date', '<=', $request->date_to);
+        }
+
+        // Filter by date preset (current month, 1 month back, 2 months back)
+        if ($request->has('date_preset')) {
+            switch ($request->date_preset) {
+                case 'current_month':
+                    $query->whereMonth('transaction_date', now()->month)
+                          ->whereYear('transaction_date', now()->year);
+                    break;
+                case '1_month_back':
+                    $startDate = now()->subMonth()->startOfMonth();
+                    $endDate = now()->subMonth()->endOfMonth();
+                    $query->whereBetween('transaction_date', [$startDate, $endDate]);
+                    break;
+                case '2_months_back':
+                    $startDate = now()->subMonths(2)->startOfMonth();
+                    $endDate = now()->subMonths(2)->endOfMonth();
+                    $query->whereBetween('transaction_date', [$startDate, $endDate]);
+                    break;
+                case 'last_3_months':
+                    $startDate = now()->subMonths(2)->startOfMonth();
+                    $endDate = now()->endOfMonth();
+                    $query->whereBetween('transaction_date', [$startDate, $endDate]);
+                    break;
+            }
+        }
+
         $transactions = $query->orderBy('created_at', 'desc')->paginate(20);
         return response()->json($transactions);
     }
@@ -58,11 +93,19 @@ class TransactionController extends Controller
             'program_id' => 'required|exists:programs,id',
             'donor_name' => 'required|string|max:255',
             'amount' => 'required|numeric|min:0',
+            'transaction_date' => 'required|date',
             'transfer_method' => 'required|string|max:255',
-            'proof_image' => 'nullable|image|mimes:jpeg,png,jpg|max:2048',
+            'proof_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
         ]);
 
         $data = $request->all();
+
+        // Get program rates
+        $program = Program::find($request->program_id);
+        if ($program) {
+            $data['volunteer_rate'] = $program->volunteer_rate;
+            $data['branch_rate'] = $program->branch_rate;
+        }
 
         // Handle file upload
         if ($request->hasFile('proof_image')) {
@@ -95,11 +138,21 @@ class TransactionController extends Controller
             'program_id' => 'required|exists:programs,id',
             'donor_name' => 'required|string|max:255',
             'amount' => 'required|numeric|min:0',
+            'transaction_date' => 'required|date',
             'transfer_method' => 'required|string|max:255',
-            'proof_image' => 'nullable|image|mimes:jpeg,png,jpg|max:2048',
+            'proof_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
         ]);
 
         $data = $request->all();
+
+        // Get program rates if program_id is being updated
+        if ($request->has('program_id')) {
+            $program = Program::find($request->program_id);
+            if ($program) {
+                $data['volunteer_rate'] = $program->volunteer_rate;
+                $data['branch_rate'] = $program->branch_rate;
+            }
+        }
 
         // Handle file upload
         if ($request->hasFile('proof_image')) {
@@ -154,7 +207,7 @@ class TransactionController extends Controller
      */
     public function myTransactions(Request $request)
     {
-        $transactions = Transaction::with(['branch', 'team', 'program', 'validator'])
+        $transactions = Transaction::with(['branch', 'team', 'volunteer', 'program', 'validator'])
             ->where('volunteer_id', $request->user()->id)
             ->orderBy('created_at', 'desc')
             ->paginate(20);
