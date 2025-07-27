@@ -23,35 +23,54 @@ class DashboardController extends Controller
             'filter_type' => 'in:current_month,one_month_ago,two_months_ago,all,date_range',
             'start_date' => 'nullable|date',
             'end_date' => 'nullable|date|after_or_equal:start_date',
+            'branch_id' => 'nullable|exists:branches,id',
+            'team_id' => 'nullable|exists:teams,id',
+            'volunteer_id' => 'nullable|string', // Allow both ID and name
+            'program_name' => 'nullable|string',
         ]);
 
         $filterType = $request->get('filter_type', 'current_month');
         $startDate = $request->get('start_date');
         $endDate = $request->get('end_date');
+        $branchId = $request->get('branch_id');
+        $teamId = $request->get('team_id');
+        $volunteerId = $request->get('volunteer_id');
+        $programName = $request->get('program_name');
 
         // Set date range based on filter type
         [$dateStart, $dateEnd] = $this->getDateRange($filterType, $startDate, $endDate);
+        
+        // Create filter array for passing to methods
+        $filters = [
+            'branch_id' => $branchId,
+            'team_id' => $teamId,
+            'volunteer_id' => $volunteerId,
+            'program_name' => $programName,
+        ];
 
         // Get transaction statistics
-        $transactionStats = $this->getTransactionStats($dateStart, $dateEnd);
+        $transactionStats = $this->getTransactionStats($dateStart, $dateEnd, $filters);
         
         // Get user statistics
         $userStats = $this->getUserStats();
         
         // Get branch statistics
-        $branchStats = $this->getBranchStats($dateStart, $dateEnd);
+        $branchStats = $this->getBranchStats($dateStart, $dateEnd, $filters);
         
         // Get program statistics
-        $programStats = $this->getProgramStats($dateStart, $dateEnd);
+        $programStats = $this->getProgramStats($dateStart, $dateEnd, $filters);
+        
+        // Get volunteer statistics
+        $volunteerStats = $this->getVolunteerStats($dateStart, $dateEnd, $filters);
         
         // Get monthly trend (last 6 months)
-        $monthlyTrend = $this->getMonthlyTrend();
+        $monthlyTrend = $this->getMonthlyTrend($filters);
         
         // Get program trend (last 6 months)
         $programTrend = $this->getProgramTrend();
         
         // Get recent transactions
-        $recentTransactions = $this->getRecentTransactions($dateStart, $dateEnd);
+        $recentTransactions = $this->getRecentTransactions($dateStart, $dateEnd, $filters);
 
         return response()->json([
             'data' => [
@@ -64,6 +83,9 @@ class DashboardController extends Controller
                 'user_stats' => $userStats,
                 'branch_stats' => $branchStats,
                 'program_stats' => $programStats,
+                'volunteer_stats' => [
+                    'top_volunteers' => $volunteerStats
+                ],
                 'monthly_trend' => $monthlyTrend,
                 'program_trend' => $programTrend,
                 'recent_transactions' => $recentTransactions,
@@ -114,7 +136,7 @@ class DashboardController extends Controller
     /**
      * Get transaction statistics
      */
-    private function getTransactionStats($dateStart, $dateEnd)
+    private function getTransactionStats($dateStart, $dateEnd, $filters = [])
     {
         $query = Transaction::query();
         
@@ -122,14 +144,47 @@ class DashboardController extends Controller
             $query->whereBetween('created_at', [$dateStart, $dateEnd]);
         }
         
+        // Apply filters
+        if (!empty($filters['branch_id'])) {
+            $query->where('branch_id', $filters['branch_id']);
+        }
+        if (!empty($filters['team_id'])) {
+            $query->where('team_id', $filters['team_id']);
+        }
+        if (!empty($filters['volunteer_id'])) {
+            // Check if volunteer_id is numeric (ID) or string (name)
+            if (is_numeric($filters['volunteer_id'])) {
+                $query->where('volunteer_id', $filters['volunteer_id']);
+            } else {
+                // Filter by volunteer name
+                $query->whereHas('volunteer', function($q) use ($filters) {
+                    $q->where('name', $filters['volunteer_id']);
+                });
+            }
+        }
+        if (!empty($filters['program_name'])) {
+            $query->whereHas('program', function($q) use ($filters) {
+                $q->where('name', $filters['program_name']);
+            });
+        }
+        
         $totalTransactions = $query->count();
-        $totalAmount = $query->sum('amount');
-        $validTransactions = $query->where('status', 'valid')->count();
-        $pendingTransactions = $query->where('status', 'pending')->count();
-        $rejectedTransactions = $query->whereIn('status', ['double_duta', 'double_input', 'not_in_account', 'other'])->count();
+        // Only count validated transactions for total amount (amount + qurban_amount)
+        $totalAmount = (clone $query)->where('status', 'valid')->sum(DB::raw('COALESCE(amount, 0) + COALESCE(qurban_amount, 0)'));
+        
+        // Get ZISWAF and QURBAN amounts (only from validated transactions)
+        $ziswaFAmount = (clone $query)->where('status', 'valid')->sum('amount');
+        
+        $qurbanAmount = (clone $query)->where('status', 'valid')->whereHas('program', function($q) {
+            $q->where('type', 'QURBAN');
+        })->sum('qurban_amount');
+        
+        $validTransactions = (clone $query)->where('status', 'valid')->count();
+        $pendingTransactions = (clone $query)->where('status', 'pending')->count();
+        $rejectedTransactions = (clone $query)->whereIn('status', ['double_duta', 'double_input', 'not_in_account', 'other'])->count();
         
         // Status breakdown
-        $statusBreakdown = $query->select('status', DB::raw('count(*) as count'), DB::raw('sum(amount) as total_amount'))
+        $statusBreakdown = (clone $query)->select('status', DB::raw('count(*) as count'), DB::raw('sum(amount) as total_amount'))
             ->groupBy('status')
             ->get()
             ->keyBy('status');
@@ -137,6 +192,8 @@ class DashboardController extends Controller
         return [
             'total_transactions' => $totalTransactions,
             'total_amount' => $totalAmount,
+            'ziswaf_amount' => $ziswaFAmount,
+            'qurban_amount' => $qurbanAmount,
             'valid_transactions' => $validTransactions,
             'pending_transactions' => $pendingTransactions,
             'rejected_transactions' => $rejectedTransactions,
@@ -166,14 +223,39 @@ class DashboardController extends Controller
     /**
      * Get branch statistics
      */
-    private function getBranchStats($dateStart, $dateEnd)
+    private function getBranchStats($dateStart, $dateEnd, $filters = [])
     {
         $query = Transaction::with('branch')
-            ->select('branch_id', DB::raw('count(*) as transaction_count'), DB::raw('sum(amount) as total_amount'))
+            ->select('branch_id', DB::raw('count(*) as transaction_count'), DB::raw('sum(COALESCE(amount, 0) + COALESCE(qurban_amount, 0)) as total_amount'))
+            ->where('status', 'valid') // Only include validated transactions
             ->groupBy('branch_id');
             
         if ($dateStart && $dateEnd) {
             $query->whereBetween('created_at', [$dateStart, $dateEnd]);
+        }
+        
+        // Apply filters
+        if (!empty($filters['branch_id'])) {
+            $query->where('branch_id', $filters['branch_id']);
+        }
+        if (!empty($filters['team_id'])) {
+            $query->where('team_id', $filters['team_id']);
+        }
+        if (!empty($filters['volunteer_id'])) {
+            // Check if volunteer_id is numeric (ID) or string (name)
+            if (is_numeric($filters['volunteer_id'])) {
+                $query->where('volunteer_id', $filters['volunteer_id']);
+            } else {
+                // Filter by volunteer name
+                $query->whereHas('volunteer', function($q) use ($filters) {
+                    $q->where('name', $filters['volunteer_id']);
+                });
+            }
+        }
+        if (!empty($filters['program_name'])) {
+            $query->whereHas('program', function($q) use ($filters) {
+                $q->where('name', $filters['program_name']);
+            });
         }
         
         $branchStats = $query->get()->map(function ($stat) {
@@ -196,20 +278,45 @@ class DashboardController extends Controller
     /**
      * Get program statistics
      */
-    private function getProgramStats($dateStart, $dateEnd)
+    private function getProgramStats($dateStart, $dateEnd, $filters = [])
     {
         $query = Transaction::with('program')
-            ->select('program_id', DB::raw('count(*) as transaction_count'), DB::raw('sum(amount) as total_amount'))
-            ->groupBy('program_id');
+            ->select('program_id', 'program.type as program_type', DB::raw('count(*) as transaction_count'), DB::raw('sum(COALESCE(transactions.amount, 0) + COALESCE(transactions.qurban_amount, 0)) as total_amount'))
+            ->join('programs as program', 'transactions.program_id', '=', 'program.id')
+            ->where('transactions.status', 'valid') // Only include validated transactions
+            ->groupBy('program_id', 'program.type');
             
         if ($dateStart && $dateEnd) {
-            $query->whereBetween('created_at', [$dateStart, $dateEnd]);
+            $query->whereBetween('transactions.created_at', [$dateStart, $dateEnd]);
+        }
+        
+        // Apply filters
+        if (!empty($filters['branch_id'])) {
+            $query->where('transactions.branch_id', $filters['branch_id']);
+        }
+        if (!empty($filters['team_id'])) {
+            $query->where('transactions.team_id', $filters['team_id']);
+        }
+        if (!empty($filters['volunteer_id'])) {
+            // Check if volunteer_id is numeric (ID) or string (name)
+            if (is_numeric($filters['volunteer_id'])) {
+                $query->where('transactions.volunteer_id', $filters['volunteer_id']);
+            } else {
+                // Filter by volunteer name
+                $query->whereHas('volunteer', function($q) use ($filters) {
+                    $q->where('name', $filters['volunteer_id']);
+                });
+            }
+        }
+        if (!empty($filters['program_name'])) {
+            $query->where('program.name', $filters['program_name']);
         }
         
         $programStats = $query->get()->map(function ($stat) {
             return [
                 'program_id' => $stat->program_id,
                 'program_name' => $stat->program ? $stat->program->name : 'Unknown',
+                'program_type' => $stat->program_type,
                 'transaction_count' => $stat->transaction_count,
                 'total_amount' => $stat->total_amount,
             ];
@@ -224,20 +331,108 @@ class DashboardController extends Controller
     }
 
     /**
+     * Get volunteer statistics
+     */
+    private function getVolunteerStats($dateStart, $dateEnd, $filters = [])
+    {
+        $query = Transaction::with(['volunteer', 'program'])
+            ->select(
+                'volunteer_id', 
+                DB::raw('count(*) as transaction_count'), 
+                DB::raw('sum(COALESCE(transactions.amount, 0) + COALESCE(transactions.qurban_amount, 0)) as total_amount'),
+                DB::raw('sum(transactions.amount) as ziswaf_amount'),
+                DB::raw('sum(case when programs.type = "QURBAN" then transactions.qurban_amount else 0 end) as qurban_amount')
+            )
+            ->join('programs', 'transactions.program_id', '=', 'programs.id')
+            ->whereNotNull('volunteer_id')
+            ->where('transactions.status', 'valid') // Only include valid transactions for top volunteers
+            ->groupBy('volunteer_id');
+            
+        if ($dateStart && $dateEnd) {
+            $query->whereBetween('transactions.created_at', [$dateStart, $dateEnd]);
+        }
+        
+        // Apply filters
+        if (!empty($filters['branch_id'])) {
+            $query->where('transactions.branch_id', $filters['branch_id']);
+        }
+        if (!empty($filters['team_id'])) {
+            $query->where('transactions.team_id', $filters['team_id']);
+        }
+        if (!empty($filters['volunteer_id'])) {
+            // Check if volunteer_id is numeric (ID) or string (name)
+            if (is_numeric($filters['volunteer_id'])) {
+                $query->where('transactions.volunteer_id', $filters['volunteer_id']);
+            } else {
+                // Filter by volunteer name
+                $query->whereHas('volunteer', function($q) use ($filters) {
+                    $q->where('name', $filters['volunteer_id']);
+                });
+            }
+        }
+        if (!empty($filters['program_name'])) {
+            $query->where('programs.name', $filters['program_name']);
+        }
+        
+        $volunteerStats = $query->orderBy('total_amount', 'desc')
+            ->limit(5)
+            ->get()
+            ->map(function ($stat) {
+                return [
+                    'volunteer_id' => $stat->volunteer_id,
+                    'volunteer_name' => $stat->volunteer ? $stat->volunteer->name : 'Unknown',
+                    'transaction_count' => $stat->transaction_count,
+                    'total_amount' => $stat->total_amount,
+                    'ziswaf_amount' => $stat->ziswaf_amount,
+                    'qurban_amount' => $stat->qurban_amount,
+                ];
+            });
+        
+        return $volunteerStats;
+    }
+
+    /**
      * Get monthly trend for the last 6 months
      */
-    private function getMonthlyTrend()
+    private function getMonthlyTrend($filters = [])
     {
         $sixMonthsAgo = Carbon::now()->subMonths(6)->startOfMonth();
         
-        $monthlyData = Transaction::select(
-                DB::raw('YEAR(created_at) as year'),
-                DB::raw('MONTH(created_at) as month'),
+        $query = Transaction::select(
+                DB::raw('YEAR(transactions.created_at) as year'),
+                DB::raw('MONTH(transactions.created_at) as month'),
                 DB::raw('count(*) as transaction_count'),
-                DB::raw('sum(amount) as total_amount')
+                DB::raw('sum(COALESCE(transactions.amount, 0) + COALESCE(transactions.qurban_amount, 0)) as total_amount'),
+                DB::raw('sum(transactions.amount) as ziswaf_amount'),
+                DB::raw('sum(case when programs.type = "QURBAN" then transactions.qurban_amount else 0 end) as qurban_amount')
             )
-            ->where('created_at', '>=', $sixMonthsAgo)
-            ->groupBy('year', 'month')
+            ->join('programs', 'transactions.program_id', '=', 'programs.id')
+            ->where('transactions.created_at', '>=', $sixMonthsAgo)
+            ->where('transactions.status', 'valid'); // Only include validated transactions
+            
+        // Apply filters
+        if (!empty($filters['branch_id'])) {
+            $query->where('transactions.branch_id', $filters['branch_id']);
+        }
+        if (!empty($filters['team_id'])) {
+            $query->where('transactions.team_id', $filters['team_id']);
+        }
+        if (!empty($filters['volunteer_id'])) {
+            // Check if volunteer_id is numeric (ID) or string (name)
+            if (is_numeric($filters['volunteer_id'])) {
+                $query->where('transactions.volunteer_id', $filters['volunteer_id']);
+            } else {
+                // Filter by volunteer name
+                $query->whereHas('volunteer', function($q) use ($filters) {
+                    $q->where('name', $filters['volunteer_id']);
+                });
+            }
+        }
+        if (!empty($filters['program_name'])) {
+            $query->where('programs.name', $filters['program_name']);
+        }
+            
+        $monthlyData = $query->groupBy('year', 'month')
             ->orderBy('year')
             ->orderBy('month')
             ->get()
@@ -246,6 +441,8 @@ class DashboardController extends Controller
                     'month' => Carbon::create($data->year, $data->month)->format('M Y'),
                     'transaction_count' => $data->transaction_count,
                     'total_amount' => $data->total_amount,
+                    'ziswaf_amount' => $data->ziswaf_amount,
+                    'qurban_amount' => $data->qurban_amount,
                 ];
             });
             
@@ -269,10 +466,11 @@ class DashboardController extends Controller
             $monthlyData = Transaction::select(
                     DB::raw('YEAR(created_at) as year'),
                     DB::raw('MONTH(created_at) as month'),
-                    DB::raw('sum(amount) as total_amount')
+                    DB::raw('sum(COALESCE(amount, 0) + COALESCE(qurban_amount, 0)) as total_amount')
                 )
                 ->where('program_id', $program->id)
                 ->where('created_at', '>=', $sixMonthsAgo)
+                ->where('status', 'valid') // Only include validated transactions
                 ->groupBy('year', 'month')
                 ->orderBy('year')
                 ->orderBy('month')
@@ -296,7 +494,7 @@ class DashboardController extends Controller
     /**
      * Get recent transactions
      */
-    private function getRecentTransactions($dateStart, $dateEnd, $limit = 10)
+    private function getRecentTransactions($dateStart, $dateEnd, $filters = [], $limit = 10)
     {
         $query = Transaction::with(['branch', 'team', 'program', 'volunteer'])
             ->orderBy('created_at', 'desc')
@@ -306,11 +504,27 @@ class DashboardController extends Controller
             $query->whereBetween('created_at', [$dateStart, $dateEnd]);
         }
         
+        // Apply filters
+        if (!empty($filters['branch_id'])) {
+            $query->where('branch_id', $filters['branch_id']);
+        }
+        if (!empty($filters['team_id'])) {
+            $query->where('team_id', $filters['team_id']);
+        }
+        if (!empty($filters['volunteer_id'])) {
+            $query->where('volunteer_id', $filters['volunteer_id']);
+        }
+        if (!empty($filters['program_name'])) {
+            $query->whereHas('program', function($q) use ($filters) {
+                $q->where('name', $filters['program_name']);
+            });
+        }
+        
         return $query->get()->map(function ($transaction) {
             return [
                 'id' => $transaction->id,
                 'donor_name' => $transaction->donor_name,
-                'amount' => $transaction->amount,
+                'amount' => ($transaction->amount ?? 0) + ($transaction->qurban_amount ?? 0),
                 'status' => $transaction->status,
                 'branch_name' => $transaction->branch ? $transaction->branch->name : null,
                 'team_name' => $transaction->team ? $transaction->team->name : null,

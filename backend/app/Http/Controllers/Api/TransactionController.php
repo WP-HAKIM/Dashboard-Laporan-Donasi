@@ -15,26 +15,45 @@ class TransactionController extends Controller
      */
     public function index(Request $request)
     {
+        // Use same preload as dashboard for consistency
         $query = Transaction::with(['branch', 'team', 'volunteer', 'program', 'validator']);
 
+        // If user is volunteer, filter by their data automatically
+        $user = $request->user();
+        if ($user && $user->role === 'volunteer') {
+            $query->where('volunteer_id', $user->id);
+            
+            // Also filter by their branch and team for consistency
+            if ($user->branch_id || $user->branchId) {
+                $query->where('branch_id', $user->branch_id ?? $user->branchId);
+            }
+            if ($user->team_id || $user->teamId) {
+                $query->where('team_id', $user->team_id ?? $user->teamId);
+            }
+        } else {
+            // For non-volunteer users, apply filters as before
+            
+            // Filter by branch
+            if ($request->has('branch_id')) {
+                $query->where('branch_id', $request->branch_id);
+            }
+
+            // Filter by team
+            if ($request->has('team_id')) {
+                $query->where('team_id', $request->team_id);
+            }
+
+            // Filter by volunteer
+            if ($request->has('volunteer_id')) {
+                $query->where('volunteer_id', $request->volunteer_id);
+            }
+        }
+
+        // Common filters for all users
+        
         // Filter by status
         if ($request->has('status')) {
             $query->where('status', $request->status);
-        }
-
-        // Filter by branch
-        if ($request->has('branch_id')) {
-            $query->where('branch_id', $request->branch_id);
-        }
-
-        // Filter by team
-        if ($request->has('team_id')) {
-            $query->where('team_id', $request->team_id);
-        }
-
-        // Filter by volunteer
-        if ($request->has('volunteer_id')) {
-            $query->where('volunteer_id', $request->volunteer_id);
         }
 
         // Filter by program type
@@ -85,47 +104,69 @@ class TransactionController extends Controller
      */
     public function store(Request $request)
     {
-        $validationRules = [
-            'branch_id' => 'required|exists:branches,id',
-            'team_id' => 'required|exists:teams,id',
-            'volunteer_id' => 'required|exists:users,id',
-            'program_type' => 'required|in:ZISWAF,QURBAN',
-            'program_id' => 'required|exists:programs,id',
-            'donor_name' => 'required|string|max:255',
-            'qurban_owner_name' => 'nullable|string|max:255',
-            'qurban_amount' => 'nullable|numeric|min:0',
-            'ziswaf_program_id' => 'nullable|exists:programs,id',
-            'transaction_date' => 'required|date',
-            'transfer_method' => 'required|string|max:255',
-            'proof_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
-        ];
+        try {
+            $validationRules = [
+                'branch_id' => 'required|exists:branches,id',
+                'team_id' => 'required|exists:teams,id',
+                'volunteer_id' => 'required|exists:users,id',
+                'program_type' => 'required|in:ZISWAF,QURBAN',
+                'program_id' => 'required|exists:programs,id',
+                'donor_name' => 'required|string|max:255',
+                'qurban_owner_name' => 'nullable|string|max:255',
+                'qurban_amount' => 'nullable|numeric|min:0',
+                'ziswaf_program_id' => 'nullable|exists:programs,id',
+                'transaction_date' => 'required|date',
+                'transfer_method' => 'required|string|max:255',
+                'proof_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
+            ];
 
-        // Amount is required for ZISWAF or when ziswaf_program_id is provided for QURBAN
-        if ($request->program_type === 'ZISWAF' || $request->ziswaf_program_id) {
-            $validationRules['amount'] = 'required|numeric|min:0';
-        } else {
-            $validationRules['amount'] = 'nullable|numeric|min:0';
+            // Amount is required for ZISWAF or when ziswaf_program_id is provided for QURBAN
+            if ($request->program_type === 'ZISWAF' || $request->ziswaf_program_id) {
+                $validationRules['amount'] = 'required|numeric|min:0';
+            } else {
+                $validationRules['amount'] = 'nullable|numeric|min:0';
+            }
+
+            $request->validate($validationRules);
+
+            $data = $request->all();
+
+            // Get program rates
+            $program = Program::find($request->program_id);
+            if ($program) {
+                $data['volunteer_rate'] = $program->volunteer_rate;
+                $data['branch_rate'] = $program->branch_rate;
+            }
+
+            // Handle file upload
+            if ($request->hasFile('proof_image')) {
+                $path = $request->file('proof_image')->store('transaction-proofs', 'public');
+                $data['proof_image'] = $path;
+            }
+
+            $transaction = Transaction::create($data);
+            return response()->json([
+                'success' => true,
+                'data' => $transaction->load(['branch', 'team', 'volunteer', 'program']),
+                'message' => 'Transaksi berhasil disimpan'
+            ], 201);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Data tidak valid',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            \Log::error('Error creating transaction: ' . $e->getMessage(), [
+                'request_data' => $request->all(),
+                'stack_trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat menyimpan transaksi: ' . $e->getMessage()
+            ], 500);
         }
-
-        $request->validate($validationRules);
-
-        $data = $request->all();
-
-        // Get program rates
-        $program = Program::find($request->program_id);
-        if ($program) {
-            $data['volunteer_rate'] = $program->volunteer_rate;
-            $data['branch_rate'] = $program->branch_rate;
-        }
-
-        // Handle file upload
-        if ($request->hasFile('proof_image')) {
-            $path = $request->file('proof_image')->store('transaction-proofs', 'public');
-            $data['proof_image'] = $path;
-        }
-
-        $transaction = Transaction::create($data);
-        return response()->json($transaction->load(['branch', 'team', 'volunteer', 'program']), 201);
     }
 
     /**
@@ -226,14 +267,44 @@ class TransactionController extends Controller
 
     /**
      * Get transactions by current user (volunteer)
+     * Uses same preload as dashboard for consistency
      */
     public function myTransactions(Request $request)
     {
-        $transactions = Transaction::with(['branch', 'team', 'volunteer', 'program', 'validator'])
-            ->where('volunteer_id', $request->user()->id)
-            ->orderBy('created_at', 'desc')
-            ->paginate(20);
-
+        $user = $request->user();
+        
+        // Use same preload as dashboard for consistency
+        $query = Transaction::with(['branch', 'team', 'volunteer', 'program', 'validator'])
+            ->where('volunteer_id', $user->id);
+            
+        // Also filter by user's branch and team for consistency
+        if ($user->branch_id || $user->branchId) {
+            $query->where('branch_id', $user->branch_id ?? $user->branchId);
+        }
+        if ($user->team_id || $user->teamId) {
+            $query->where('team_id', $user->team_id ?? $user->teamId);
+        }
+        
+        // Apply additional filters if provided
+        if ($request->has('status')) {
+            $query->where('status', $request->status);
+        }
+        
+        if ($request->has('program_type')) {
+            $query->where('program_type', $request->program_type);
+        }
+        
+        // Filter by date range
+        if ($request->has('date_from')) {
+            $query->whereDate('created_at', '>=', $request->date_from);
+        }
+        
+        if ($request->has('date_to')) {
+            $query->whereDate('created_at', '<=', $request->date_to);
+        }
+        
+        $transactions = $query->orderBy('created_at', 'desc')->paginate(20);
+        
         return response()->json($transactions);
     }
 
@@ -252,5 +323,42 @@ class TransactionController extends Controller
 
         $transactions = $query->orderBy('created_at', 'asc')->paginate(20);
         return response()->json($transactions);
+    }
+
+    /**
+     * Bulk update transaction status
+     */
+    public function bulkUpdateStatus(Request $request)
+    {
+        $request->validate([
+            'transaction_ids' => 'required|array',
+            'transaction_ids.*' => 'required|exists:transactions,id',
+            'status' => 'required|in:pending,valid,double_duta,double_input,not_in_account,other',
+        ]);
+
+        try {
+            $updatedCount = Transaction::whereIn('id', $request->transaction_ids)
+                ->update([
+                    'status' => $request->status,
+                    'updated_at' => now(),
+                ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => "Status {$updatedCount} transaksi berhasil diubah",
+                'updated_count' => $updatedCount
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Error bulk updating transaction status: ' . $e->getMessage(), [
+                'transaction_ids' => $request->transaction_ids,
+                'status' => $request->status,
+                'stack_trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat mengubah status transaksi: ' . $e->getMessage()
+            ], 500);
+        }
     }
 }

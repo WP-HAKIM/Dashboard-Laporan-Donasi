@@ -22,7 +22,9 @@ export function usePrograms() {
       setIsLoading(true);
       setError(null);
       const response = await programsAPI.getAll();
-      const transformedPrograms = (response.data || []).map(transformProgram);
+      // Handle both old and new response formats
+      const programsData = response.data?.data || response.data || [];
+      const transformedPrograms = programsData.map(transformProgram);
       setPrograms(transformedPrograms);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to fetch programs');
@@ -48,7 +50,9 @@ export function usePrograms() {
         branch_rate: data.branchRate
       };
       const response = await programsAPI.create(backendData);
-      const transformedProgram = transformProgram(response.data);
+      // Handle both old and new response formats
+      const programData = response.data?.data || response.data;
+      const transformedProgram = transformProgram(programData);
       setPrograms(prev => [...prev, transformedProgram]);
       return transformedProgram;
     } catch (err: any) {
@@ -68,7 +72,9 @@ export function usePrograms() {
       if (data.branchRate !== undefined) backendData.branch_rate = data.branchRate;
       
       const response = await programsAPI.update(id, backendData);
-      const transformedProgram = transformProgram(response.data);
+      // Handle both old and new response formats
+      const programData = response.data?.data || response.data;
+      const transformedProgram = transformProgram(programData);
       setPrograms(prev => prev.map(program => 
         program.id === id ? transformedProgram : program
       ));

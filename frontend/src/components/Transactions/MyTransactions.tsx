@@ -1,18 +1,22 @@
 import React, { useState } from 'react';
-import { Search, Filter, Eye, Edit, Trash2, Plus, Loader, X, Calendar } from 'lucide-react';
+import { Search, Filter, Eye, Edit, Trash2, Plus, Loader, X, Calendar, Save } from 'lucide-react';
 import { Transaction } from '../../types';
 import { useAuth } from '../../hooks/useAuth';
 import { useTransactions } from '../../hooks/useTransactions';
 import { useBranches } from '../../hooks/useBranches';
 import { useTeams } from '../../hooks/useTeams';
 import { usePrograms } from '../../hooks/usePrograms';
+import { useUsers } from '../../hooks/useUsers';
+import { usePaymentMethods } from '../../hooks/usePaymentMethods';
 
 export default function MyTransactions() {
   const { user } = useAuth();
-  const { transactions, isLoading, error, deleteTransaction } = useTransactions();
+  const { myTransactions, isLoading, error, deleteTransaction, fetchMyTransactions, updateTransaction } = useTransactions();
   const { branches } = useBranches();
   const { teams } = useTeams();
   const { programs } = usePrograms();
+  const { volunteers } = useUsers();
+  const { paymentMethods } = usePaymentMethods();
   const [searchTerm, setSearchTerm] = useState('');
   const [filters, setFilters] = useState({
     dateFrom: '',
@@ -27,21 +31,32 @@ export default function MyTransactions() {
   const [tempDateFrom, setTempDateFrom] = useState('');
   const [tempDateTo, setTempDateTo] = useState('');
   const [datePreset, setDatePreset] = useState('all');
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [editForm, setEditForm] = useState({
+    donor_name: '',
+    amount: '',
+    transaction_date: '',
+    program_id: '',
+    payment_method_id: '',
+    branch_id: '',
+    team_id: '',
+    volunteer_id: '',
+    status: '',
+    status_reason: '',
+    proof_image: null as File | null
+  });
 
-  // Filter transactions based on user role
-  const getUserTransactions = () => {
-    if (user?.role === 'volunteer') {
-      return transactions.filter(t => t.volunteerId === user.id);
-    } else if (user?.role === 'branch') {
-      return transactions.filter(t => t.branchId === user.branchId);
-    }
-    return transactions;
-  };
+  // Fetch my transactions on component mount
+  React.useEffect(() => {
+    fetchMyTransactions();
+  }, []);
 
-  const filteredTransactions = getUserTransactions().filter(transaction => {
+  // Use myTransactions directly from the hook
+  const filteredTransactions = myTransactions.filter(transaction => {
     const matchesSearch = 
       (transaction.donorName?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-      (transaction.id?.toLowerCase() || '').includes(searchTerm.toLowerCase());
+      (transaction.id?.toString().toLowerCase() || '').includes(searchTerm.toLowerCase());
     
     const createdAt = transaction.created_at || transaction.createdAt;
     const matchesDateFrom = !filters.dateFrom || new Date(createdAt) >= new Date(filters.dateFrom);
@@ -137,7 +152,22 @@ export default function MyTransactions() {
   };
 
   const canEdit = (transaction: Transaction) => {
-    return transaction.status === 'pending';
+    if (!user) return false;
+    
+    // Admin can edit all transactions
+    if (user.role === 'admin') return true;
+    
+    // Branch can edit transactions from their branch
+    if (user.role === 'branch') {
+      return transaction.branch_id === user.branch_id;
+    }
+    
+    // Volunteer can edit their own transactions
+    if (user.role === 'volunteer') {
+      return transaction.volunteer_id === user.id;
+    }
+    
+    return false;
   };
 
   const handleViewProof = (transaction: Transaction) => {
@@ -244,9 +274,31 @@ export default function MyTransactions() {
     return presetLabels[datePreset as keyof typeof presetLabels] || 'Semua Tanggal';
   };
 
+  const canDelete = (transaction: Transaction) => {
+    if (!user) return false;
+    
+    // Only allow deleting if status is 'menunggu validasi'
+    if (transaction.status !== 'menunggu validasi') return false;
+    
+    // Admin can delete all transactions
+    if (user.role === 'admin') return true;
+    
+    // Branch can delete transactions from their branch
+    if (user.role === 'branch') {
+      return transaction.branch_id === user.branch_id;
+    }
+    
+    // Volunteer can delete their own transactions
+    if (user.role === 'volunteer') {
+      return transaction.volunteer_id === user.id;
+    }
+    
+    return false;
+  };
+
   const handleDelete = async (id: string) => {
-    const transaction = getUserTransactions().find(t => t.id === id);
-    if (transaction && transaction.status !== 'pending') {
+    const transaction = myTransactions.find(t => t.id === id);
+    if (transaction && transaction.status !== 'menunggu validasi') {
       alert('Hanya transaksi dengan status "Menunggu Validasi" yang dapat dihapus');
       return;
     }
@@ -255,11 +307,88 @@ export default function MyTransactions() {
       try {
         await deleteTransaction(id);
         alert('Transaksi berhasil dihapus!');
+        
+        // Refresh transactions to ensure UI is updated
+        await fetchMyTransactions();
       } catch (error) {
         console.error('Error deleting transaction:', error);
         alert('Gagal menghapus transaksi. Silakan coba lagi.');
       }
     }
+  };
+
+  const handleEdit = (transaction: Transaction) => {
+    setEditingTransaction(transaction);
+    setEditForm({
+      donor_name: transaction.donor_name || transaction.donorName || '',
+      amount: transaction.amount.toString(),
+      transaction_date: (transaction.transaction_date || transaction.created_at || '').split('T')[0],
+      program_id: (transaction.program_id || '').toString(),
+      payment_method_id: (transaction.payment_method_id || '').toString(),
+      branch_id: (transaction.branch_id || '').toString(),
+      team_id: (transaction.team_id || '').toString(),
+      volunteer_id: (transaction.volunteer_id || '').toString(),
+      status: transaction.status,
+      status_reason: transaction.status_reason || transaction.statusReason || '',
+      proof_image: null
+    });
+    setShowEditModal(true);
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTransaction) return;
+
+    try {
+      const formData = new FormData();
+      formData.append('donor_name', editForm.donor_name);
+      formData.append('amount', editForm.amount);
+      formData.append('transaction_date', editForm.transaction_date);
+      formData.append('program_id', editForm.program_id);
+      formData.append('payment_method_id', editForm.payment_method_id);
+      formData.append('branch_id', editForm.branch_id);
+      formData.append('team_id', editForm.team_id);
+      formData.append('volunteer_id', editForm.volunteer_id);
+      formData.append('status', editForm.status);
+      formData.append('status_reason', editForm.status_reason);
+      
+      if (editForm.proof_image) {
+        formData.append('proof_image', editForm.proof_image);
+      }
+
+      await updateTransaction(editingTransaction.id, formData);
+      await fetchMyTransactions();
+      setShowEditModal(false);
+      setEditingTransaction(null);
+    } catch (error) {
+      console.error('Error updating transaction:', error);
+    }
+  };
+
+  // Check if field should be disabled based on role and status
+  const isFieldDisabled = (fieldName: string) => {
+    if (!editingTransaction || !user) return false;
+    
+    const isVolunteer = user.role === 'volunteer';
+    const isBranch = user.role === 'branch';
+    const isStatusChanged = editingTransaction.status !== 'menunggu validasi';
+    
+    // If status has changed from 'menunggu validasi', disable all fields for volunteer and branch
+    if ((isVolunteer || isBranch) && isStatusChanged) {
+      return true;
+    }
+    
+    // Status field is always disabled for volunteer and branch
+    if ((isVolunteer || isBranch) && fieldName === 'status') {
+      return true;
+    }
+    
+    // For volunteer role, disable branch, team, and volunteer fields
+    if (isVolunteer && ['branch_id', 'team_id', 'volunteer_id'].includes(fieldName)) {
+      return true;
+    }
+    
+    return false;
   };
 
   const totalAmount = filteredTransactions
@@ -405,7 +534,7 @@ export default function MyTransactions() {
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
               <option value="">Semua Status</option>
-              <option value="pending">Menunggu Validasi</option>
+              <option value="menunggu validasi">Menunggu Validasi</option>
               <option value="valid">Tervalidasi</option>
               <option value="double_duta">Double Duta</option>
               <option value="double_input">Double Input</option>
@@ -512,18 +641,22 @@ export default function MyTransactions() {
                         <Eye className="w-4 h-4" />
                       </button>
                       {canEdit(transaction) && (
-                        <>
-                          <button className="text-green-600 hover:text-green-800" title="Edit">
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(transaction.id)}
-                            className="text-red-600 hover:text-red-800"
-                            title="Hapus"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </>
+                        <button 
+                          onClick={() => handleEdit(transaction)}
+                          className="text-green-600 hover:text-green-800" 
+                          title="Edit"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                      )}
+                      {canDelete(transaction) && (
+                        <button
+                          onClick={() => handleDelete(transaction.id)}
+                          className="text-red-600 hover:text-red-800"
+                          title="Hapus"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       )}
                     </div>
                   </td>
@@ -589,7 +722,7 @@ export default function MyTransactions() {
                 </div>
                 <div>
                   <span className="text-gray-500">Program:</span>
-                  <p className="text-gray-900">{getProgramName(transaction)}</p>
+                  <div className="text-gray-900">{getProgramName(transaction)}</div>
                 </div>
                 <div>
                   <span className="text-gray-500">Bank:</span>
@@ -614,18 +747,22 @@ export default function MyTransactions() {
                   <Eye className="w-4 h-4" />
                 </button>
                 {canEdit(transaction) && (
-                  <>
-                    <button className="text-green-600 hover:text-green-800 p-2" title="Edit">
-                      <Edit className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(transaction.id)}
-                      className="text-red-600 hover:text-red-800 p-2"
-                      title="Hapus"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </>
+                  <button 
+                    onClick={() => handleEdit(transaction)}
+                    className="text-green-600 hover:text-green-800 p-2" 
+                    title="Edit"
+                  >
+                    <Edit className="w-4 h-4" />
+                  </button>
+                )}
+                {canDelete(transaction) && (
+                  <button
+                    onClick={() => handleDelete(transaction.id)}
+                    className="text-red-600 hover:text-red-800 p-2"
+                    title="Hapus"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 )}
               </div>
             </div>
@@ -736,6 +873,235 @@ export default function MyTransactions() {
                 Terapkan Filter
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Transaction Modal */}
+      {showEditModal && editingTransaction && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">Edit Transaksi #{editingTransaction.id}</h3>
+              <button
+                onClick={() => setShowEditModal(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <form onSubmit={handleEditSubmit} className="p-6 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Nama Donatur *
+                  </label>
+                  <input
+                    type="text"
+                    value={editForm.donor_name}
+                    onChange={(e) => setEditForm({ ...editForm, donor_name: e.target.value })}
+                    disabled={isFieldDisabled('donor_name')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                    required
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Nominal *
+                  </label>
+                  <input
+                    type="number"
+                    value={editForm.amount}
+                    onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
+                    disabled={isFieldDisabled('amount')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                    required
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Tanggal Transaksi *
+                  </label>
+                  <input
+                    type="date"
+                    value={editForm.transaction_date}
+                    onChange={(e) => setEditForm({ ...editForm, transaction_date: e.target.value })}
+                    disabled={isFieldDisabled('transaction_date')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                    required
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Program *
+                  </label>
+                  <select
+                    value={editForm.program_id}
+                    onChange={(e) => setEditForm({ ...editForm, program_id: e.target.value })}
+                    disabled={isFieldDisabled('program_id')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                    required
+                  >
+                    <option value="">Pilih Program</option>
+                    {programs.map(program => (
+                      <option key={program.id} value={program.id}>
+                        {program.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Metode Pembayaran *
+                  </label>
+                  <select
+                    value={editForm.payment_method_id}
+                    onChange={(e) => setEditForm({ ...editForm, payment_method_id: e.target.value })}
+                    disabled={isFieldDisabled('payment_method_id')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                    required
+                  >
+                    <option value="">Pilih Metode Pembayaran</option>
+                    {paymentMethods.map(method => (
+                      <option key={method.id} value={method.id}>
+                        {method.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Cabang *
+                  </label>
+                  <select
+                    value={editForm.branch_id}
+                    onChange={(e) => setEditForm({ ...editForm, branch_id: e.target.value })}
+                    disabled={isFieldDisabled('branch_id')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                    required
+                  >
+                    <option value="">Pilih Cabang</option>
+                    {branches.map(branch => (
+                      <option key={branch.id} value={branch.id}>
+                        {branch.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Tim *
+                  </label>
+                  <select
+                    value={editForm.team_id}
+                    onChange={(e) => setEditForm({ ...editForm, team_id: e.target.value })}
+                    disabled={isFieldDisabled('team_id')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                    required
+                  >
+                    <option value="">Pilih Tim</option>
+                    {teams.map(team => (
+                      <option key={team.id} value={team.id}>
+                        {team.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Relawan *
+                  </label>
+                  <select
+                    value={editForm.volunteer_id}
+                    onChange={(e) => setEditForm({ ...editForm, volunteer_id: e.target.value })}
+                    disabled={isFieldDisabled('volunteer_id')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                    required
+                  >
+                    <option value="">Pilih Relawan</option>
+                    {volunteers.map(volunteer => (
+                      <option key={volunteer.id} value={volunteer.id}>
+                        {volunteer.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Status
+                  </label>
+                  <select
+                    value={editForm.status}
+                    onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
+                    disabled={isFieldDisabled('status')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                  >
+                    <option value="pending">Menunggu Validasi</option>
+                    <option value="valid">Tervalidasi</option>
+                    <option value="double_duta">Double Duta</option>
+                    <option value="double_input">Double Input</option>
+                    <option value="not_in_account">Tidak Ada di Rekening</option>
+                    <option value="other">Lainnya</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Alasan Status
+                  </label>
+                  <input
+                    type="text"
+                    value={editForm.status_reason}
+                    onChange={(e) => setEditForm({ ...editForm, status_reason: e.target.value })}
+                    disabled={isFieldDisabled('status_reason')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                    placeholder="Opsional"
+                  />
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Bukti Transaksi (Opsional)
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setEditForm({ ...editForm, proof_image: e.target.files?.[0] || null })}
+                  disabled={isFieldDisabled('proof_image')}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Kosongkan jika tidak ingin mengubah gambar
+                </p>
+              </div>
+              
+              <div className="flex gap-3 pt-4 border-t border-gray-200">
+                <button
+                  type="button"
+                  onClick={() => setShowEditModal(false)}
+                  className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Save className="w-4 h-4" />
+                  Simpan Perubahan
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

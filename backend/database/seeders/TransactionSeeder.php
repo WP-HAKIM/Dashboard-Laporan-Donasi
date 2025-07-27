@@ -41,14 +41,50 @@ class TransactionSeeder extends Seeder
         // Generate 50 transaksi dummy
         for ($i = 1; $i <= 50; $i++) {
             $createdAt = Carbon::now()->subDays(rand(0, 90)); // Transaksi dalam 90 hari terakhir
-            $transactionDate = $createdAt->copy()->subDays(rand(0, 7)); // Tanggal transaksi bisa berbeda dari input
-            $status = $statuses[array_rand($statuses)];
+            
+            // Tingkatkan peluang status valid menjadi 60%
+            $statusWeights = [
+                'valid' => 60,
+                'pending' => 20,
+                'double_duta' => 5,
+                'double_input' => 5,
+                'not_in_account' => 5,
+                'other' => 5
+            ];
+            $randomNum = rand(1, 100);
+            $cumulativeWeight = 0;
+            $status = 'valid';
+            foreach ($statusWeights as $statusOption => $weight) {
+                $cumulativeWeight += $weight;
+                if ($randomNum <= $cumulativeWeight) {
+                    $status = $statusOption;
+                    break;
+                }
+            }
+            
             $validatedAt = null;
             $validatedBy = null;
             
             // Pilih program dan ambil rate-nya
             $selectedProgram = $programs->random();
-            $programType = ['ZISWAF', 'QURBAN'][array_rand(['ZISWAF', 'QURBAN'])];
+            $programType = $selectedProgram->type;
+            
+            // Siapkan data khusus berdasarkan tipe program
+            $qurbanOwnerName = null;
+            $qurbanAmount = null;
+            $ziswafProgramId = null;
+            $mainAmount = rand(50000, 5000000);
+            
+            if ($programType === 'QURBAN') {
+                $qurbanOwnerName = $donorNames[array_rand($donorNames)];
+                $qurbanAmount = $mainAmount;
+            } else {
+                // Untuk ZISWAF, pilih program ziswaf lain sebagai ziswaf_program_id
+                $ziswafPrograms = $programs->where('type', 'ZISWAF');
+                if ($ziswafPrograms->count() > 0) {
+                    $ziswafProgramId = $ziswafPrograms->random()->id;
+                }
+            }
 
             // Jika status valid, set validated_at dan validated_by
             if ($status === 'valid') {
@@ -63,8 +99,10 @@ class TransactionSeeder extends Seeder
                 'program_type' => $programType,
                 'program_id' => $selectedProgram->id,
                 'donor_name' => $donorNames[array_rand($donorNames)],
-                'amount' => rand(50000, 5000000), // Donasi antara 50rb - 5jt
-                'transaction_date' => $transactionDate,
+                'amount' => $mainAmount,
+                'qurban_owner_name' => $qurbanOwnerName,
+                'qurban_amount' => $qurbanAmount,
+                'ziswaf_program_id' => $ziswafProgramId,
                 'volunteer_rate' => $selectedProgram->volunteer_rate,
                 'branch_rate' => $selectedProgram->branch_rate,
                 'transfer_method' => $transferMethods[array_rand($transferMethods)],

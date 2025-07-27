@@ -23,7 +23,7 @@ class PaymentMethodService {
   private baseUrl = 'http://localhost:8000/api';
 
   private getAuthHeaders() {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('auth_token');
     return {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`
@@ -39,7 +39,8 @@ class PaymentMethodService {
       throw new Error('Failed to fetch payment methods');
     }
 
-    return response.json();
+    const result = await response.json();
+    return result.data || result; // Handle both new and old response formats
   }
 
   async getAllPublic(): Promise<PaymentMethod[]> {
@@ -53,7 +54,8 @@ class PaymentMethodService {
       throw new Error('Failed to fetch payment methods');
     }
 
-    return response.json();
+    const result = await response.json();
+    return result.data || result; // Handle both new and old response formats
   }
 
   async create(data: CreatePaymentMethodData): Promise<PaymentMethod> {
@@ -65,10 +67,16 @@ class PaymentMethodService {
 
     if (!response.ok) {
       const errorData = await response.json();
+      if (errorData.errors) {
+        // Handle validation errors
+        const errorMessages = Object.values(errorData.errors).flat().join(', ');
+        throw new Error(errorMessages);
+      }
       throw new Error(errorData.message || 'Failed to create payment method');
     }
 
-    return response.json();
+    const result = await response.json();
+    return result.data || result; // Handle both new and old response formats
   }
 
   async update(id: number, data: UpdatePaymentMethodData): Promise<PaymentMethod> {
@@ -80,10 +88,16 @@ class PaymentMethodService {
 
     if (!response.ok) {
       const errorData = await response.json();
+      if (errorData.errors) {
+        // Handle validation errors
+        const errorMessages = Object.values(errorData.errors).flat().join(', ');
+        throw new Error(errorMessages);
+      }
       throw new Error(errorData.message || 'Failed to update payment method');
     }
 
-    return response.json();
+    const result = await response.json();
+    return result.data || result; // Handle both new and old response formats
   }
 
   async delete(id: number): Promise<void> {
@@ -96,6 +110,8 @@ class PaymentMethodService {
       const errorData = await response.json();
       throw new Error(errorData.message || 'Failed to delete payment method');
     }
+
+    // No need to return data for delete operation
   }
 }
 

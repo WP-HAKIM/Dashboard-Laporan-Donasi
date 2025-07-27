@@ -74,6 +74,17 @@ export default function DashboardView() {
     }
   };
 
+  // Calculate ZISWAF and QURBAN totals with proper fallback
+  const ziswafTotal = dashboardData.transaction_stats?.ziswaf_amount || 
+    dashboardData.program_stats?.program_performance
+      ?.filter(program => program.program_type === 'ZISWAF')
+      ?.reduce((sum, program) => sum + (program.total_amount || 0), 0) || 0;
+    
+  const qurbanTotal = dashboardData.transaction_stats?.qurban_amount || 
+    dashboardData.program_stats?.program_performance
+      ?.filter(program => program.program_type === 'QURBAN')
+      ?.reduce((sum, program) => sum + (program.total_amount || 0), 0) || 0;
+
   const stats = [
     {
       title: 'Total Donasi Tervalidasi',
@@ -81,6 +92,20 @@ export default function DashboardView() {
       icon: DollarSign,
       color: 'bg-green-500',
       textColor: 'text-green-600'
+    },
+    {
+      title: 'Total Donasi ZISWAF',
+      value: formatCurrency(ziswafTotal),
+      icon: Award,
+      color: 'bg-indigo-500',
+      textColor: 'text-indigo-600'
+    },
+    {
+      title: 'Total Donasi QURBAN',
+      value: formatCurrency(qurbanTotal),
+      icon: BarChart3,
+      color: 'bg-orange-500',
+      textColor: 'text-orange-600'
     },
     {
       title: 'Transaksi Tervalidasi',
@@ -105,8 +130,14 @@ export default function DashboardView() {
     }
   ];
 
-  const programStats = dashboardData.program_stats.program_performance;
-  const branchStats = dashboardData.branch_stats.branch_performance;
+  // Sort program and branch stats by total amount (highest first)
+  const programStats = [...dashboardData.program_stats.program_performance]
+    .sort((a, b) => b.total_amount - a.total_amount);
+  const branchStats = [...dashboardData.branch_stats.branch_performance]
+    .sort((a, b) => b.total_amount - a.total_amount);
+    
+  // Get top 5 volunteers
+  const topVolunteers = dashboardData.volunteer_stats?.top_volunteers || [];
 
   return (
     <div className="p-6">
@@ -134,10 +165,11 @@ export default function DashboardView() {
         currentFilter={currentFilter}
         onFilterChange={updateFilter}
         isLoading={isLoading}
+        dashboardData={dashboardData}
       />
 
       {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
         {stats.map((stat, index) => {
           const Icon = stat.icon;
           return (
@@ -158,7 +190,39 @@ export default function DashboardView() {
         })}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-8">
+        {/* Top 5 Volunteers */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <h2 className="text-xl font-bold text-gray-900 mb-6">Top 5 Relawan Terbaik</h2>
+          <div className="space-y-4">
+            {topVolunteers.slice(0, 5).map((volunteer, index) => (
+              <div key={index} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${
+                    index === 0 ? 'bg-yellow-500' :
+                    index === 1 ? 'bg-gray-400' :
+                    index === 2 ? 'bg-orange-600' :
+                    'bg-blue-500'
+                  }`}>
+                    {index + 1}
+                  </div>
+                  <div>
+                    <h3 className="font-medium text-gray-900">{volunteer.volunteer_name}</h3>
+                    <p className="text-sm text-gray-600">{volunteer.transaction_count} transaksi</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="font-bold text-purple-600">{formatCurrency(volunteer.total_amount)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          {topVolunteers.length === 0 && (
+            <div className="text-center py-8">
+              <p className="text-gray-500">Belum ada data relawan</p>
+            </div>
+          )}
+        </div>
         {/* Program Statistics */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <h2 className="text-xl font-bold text-gray-900 mb-6">Perolehan per Program</h2>
@@ -196,9 +260,38 @@ export default function DashboardView() {
         </div>
       </div>
 
-      {/* Monthly Trend Chart */}
-      <div className="mt-8">
-        <ProgramTrendChart data={dashboardData.program_trend} />
+      {/* Charts Section */}
+      <div className="mt-8 grid grid-cols-1 xl:grid-cols-2 gap-8">
+        {/* Monthly Trend Chart */}
+        <div>
+          <ProgramTrendChart data={dashboardData.program_trend} />
+        </div>
+        
+        {/* 6-Month Donation Trend */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <h2 className="text-xl font-bold text-gray-900 mb-6">Trend Pendapatan 6 Bulan</h2>
+          <div className="space-y-4">
+            {dashboardData.monthly_trend?.slice(-6).map((month, index) => (
+              <div key={index} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                <div>
+                  <h3 className="font-medium text-gray-900">{month.month}</h3>
+                  <p className="text-sm text-gray-600">{month.transaction_count} transaksi</p>
+                </div>
+                <div className="text-right">
+                  <p className="font-bold text-green-600">{formatCurrency(month.total_amount)}</p>
+                  <div className="flex gap-2 text-xs text-gray-500 mt-1">
+                    <span>ZISWAF: {formatCurrency(month.ziswaf_amount || 0)}</span>
+                    <span>QURBAN: {formatCurrency(month.qurban_amount || 0)}</span>
+                  </div>
+                </div>
+              </div>
+            )) || (
+              <div className="text-center py-8">
+                <p className="text-gray-500">Belum ada data trend bulanan</p>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Recent Transactions */}

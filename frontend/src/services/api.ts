@@ -150,27 +150,27 @@ export const teamsAPI = {
 export const programsAPI = {
   getAll: async () => {
     const response = await api.get('/programs');
-    return response;
+    return response.data;
   },
   
   getById: async (id: string) => {
     const response = await api.get(`/programs/${id}`);
-    return response;
+    return response.data;
   },
   
   create: async (data: Omit<Program, 'id'>) => {
     const response = await api.post('/programs', data);
-    return response;
+    return response.data;
   },
   
   update: async (id: string, data: Partial<Program>) => {
     const response = await api.put(`/programs/${id}`, data);
-    return response;
+    return response.data;
   },
   
   delete: async (id: string) => {
     const response = await api.delete(`/programs/${id}`);
-    return response;
+    return response.data;
   },
 };
 
@@ -221,7 +221,15 @@ export const transactionsAPI = {
     const response = await api.put(`/transactions/${id}`, data);
     return response.data;
   },
-  
+
+  bulkUpdateStatus: async (transactionIds: string[], status: string) => {
+    const response = await api.post('/transactions/bulk-update-status', {
+      transaction_ids: transactionIds,
+      status: status
+    });
+    return response.data;
+  },
+
   delete: async (id: string) => {
     const response = await api.delete(`/transactions/${id}`);
     return response.data;
@@ -234,6 +242,10 @@ export const dashboardAPI = {
     filter_type?: string;
     start_date?: string;
     end_date?: string;
+    branch_id?: string;
+    team_id?: string;
+    volunteer_id?: string;
+    program_type?: string;
   }) => {
     const response = await api.get('/dashboard', { params });
     return response.data;

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Filter, Download, Edit, Trash2, Eye, Plus, X, Calendar } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { Transaction } from '../../types';
+import { useAuth } from '../../hooks/useAuth';
 import { useTransactions } from '../../hooks/useTransactions';
 import { useBranches } from '../../hooks/useBranches';
 import { useTeams } from '../../hooks/useTeams';
@@ -8,9 +10,11 @@ import { usePrograms } from '../../hooks/usePrograms';
 import { useUsers } from '../../hooks/useUsers';
 import { usePaymentMethods } from '../../hooks/usePaymentMethods';
 import Loader from '../Common/Loader';
+import SearchableSelect from '../Common/SearchableSelect';
 
 export default function AllTransactions() {
-  const { transactions, isLoading, error, deleteTransaction, updateTransaction, fetchTransactions } = useTransactions();
+  const { user } = useAuth();
+  const { transactions, isLoading, error, deleteTransaction, updateTransaction, bulkUpdateStatus, fetchTransactions } = useTransactions();
   const { branches } = useBranches();
   const { teams } = useTeams();
   const { programs } = usePrograms();
@@ -43,14 +47,93 @@ export default function AllTransactions() {
     donorName: '',
     amount: 0,
     transferMethod: '',
+    programType: 'ZISWAF' as 'ZISWAF' | 'QURBAN',
     programId: '',
+    qurbanOwnerName: '',
+    qurbanAmount: '',
+    ziswafProgramId: '',
     branchId: '',
     teamId: '',
     volunteerId: '',
+    transactionDate: '',
     status: 'pending' as Transaction['status']
   });
+  const [selectedTransactions, setSelectedTransactions] = useState<string[]>([]);
+  const [showBulkActions, setShowBulkActions] = useState(false);
+  const [bulkAction, setBulkAction] = useState('');
+  const [isBulkProcessing, setIsBulkProcessing] = useState(false);
 
+  // Reset selected transactions when filters change
+  useEffect(() => {
+    setSelectedTransactions([]);
+  }, [filters, searchTerm]);
 
+  // Bulk actions functions
+  const handleSelectAll = () => {
+    if (selectedTransactions.length === paginatedTransactions.length && paginatedTransactions.length > 0) {
+      setSelectedTransactions([]);
+    } else {
+      setSelectedTransactions(paginatedTransactions.map(t => String(t.id)));
+    }
+  };
+
+  const handleSelectTransaction = (transactionId: string) => {
+    setSelectedTransactions(prev => {
+      if (prev.includes(transactionId)) {
+        return prev.filter(id => id !== transactionId);
+      } else {
+        return [...prev, transactionId];
+      }
+    });
+  };
+
+  const handleBulkAction = async () => {
+    if (!bulkAction || selectedTransactions.length === 0) return;
+
+    const actionText = bulkAction === 'delete' ? 'menghapus' : 'mengubah status';
+    const confirmMessage = `Apakah Anda yakin ingin ${actionText} ${selectedTransactions.length} transaksi yang dipilih?`;
+    
+    if (!window.confirm(confirmMessage)) return;
+
+    setIsBulkProcessing(true);
+    try {
+      if (bulkAction === 'delete') {
+        // Delete selected transactions
+        for (const transactionId of selectedTransactions) {
+          await deleteTransaction(Number(transactionId));
+        }
+        alert(`${selectedTransactions.length} transaksi berhasil dihapus`);
+      } else {
+        // Update status of selected transactions using bulk update
+        await bulkUpdateStatus(selectedTransactions, bulkAction);
+        alert(`Status ${selectedTransactions.length} transaksi berhasil diubah`);
+      }
+      
+      // Reset selections
+      setSelectedTransactions([]);
+      setBulkAction('');
+      
+      // Refresh transactions to ensure UI is updated
+      const params: any = {};
+      if (filters.datePreset && filters.datePreset !== 'all') {
+        params.date_preset = filters.datePreset;
+      } else if (filters.dateFrom || filters.dateTo) {
+        if (filters.dateFrom) params.date_from = filters.dateFrom;
+        if (filters.dateTo) params.date_to = filters.dateTo;
+      }
+      if (filters.branchId) params.branch_id = filters.branchId;
+      if (filters.teamId) params.team_id = filters.teamId;
+      if (filters.status) params.status = filters.status;
+      if (filters.programType) params.program_type = filters.programType;
+      
+      await fetchTransactions(params);
+    } catch (error: any) {
+      console.error('Bulk action error:', error);
+      alert('Terjadi kesalahan: ' + (error.response?.data?.message || error.message));
+    } finally {
+      setIsBulkProcessing(false);
+    }
+  };
 
   // Fetch transactions with filters
   useEffect(() => {
@@ -69,11 +152,18 @@ export default function AllTransactions() {
       if (filters.status) params.status = filters.status;
       if (filters.programType) params.program_type = filters.programType;
       
+      // For volunteer role, automatically filter by their data
+      if (user?.role === 'volunteer') {
+        params.volunteer_id = user.id;
+        params.branch_id = user.branchId || user.branch_id;
+        params.team_id = user.teamId || user.team_id;
+      }
+      
       await fetchTransactions(params);
     };
     
     loadTransactions();
-  }, [filters.datePreset, filters.dateFrom, filters.dateTo, filters.branchId, filters.teamId, filters.status, filters.programType]);
+  }, [filters.datePreset, filters.dateFrom, filters.dateTo, filters.branchId, filters.teamId, filters.status, filters.programType, user]);
 
   const filteredTransactions = transactions.filter(transaction => {
     if (!transaction) return false;
@@ -139,14 +229,35 @@ export default function AllTransactions() {
       availableVolunteers: volunteers.length
     });
     
+    // Format transaction date for date input (YYYY-MM-DD)
+    let formattedDate = '';
+    if (transaction.transaction_date) {
+      // If transaction_date exists, use it and format to YYYY-MM-DD
+      formattedDate = new Date(transaction.transaction_date).toISOString().split('T')[0];
+    } else if (transaction.transactionDate) {
+      // If camelCase transactionDate exists, use it
+      formattedDate = new Date(transaction.transactionDate).toISOString().split('T')[0];
+    } else if (transaction.created_at) {
+      // Fallback to created_at
+      formattedDate = new Date(transaction.created_at).toISOString().split('T')[0];
+    } else if (transaction.createdAt) {
+      // Fallback to camelCase createdAt
+      formattedDate = new Date(transaction.createdAt).toISOString().split('T')[0];
+    }
+    
     setFormData({
       donorName: transaction.donorName || transaction.donor_name || '',
       amount: transaction.amount || 0,
       transferMethod: transaction.transferMethod || transaction.transfer_method || '',
+      programType: (transaction.program?.type || 'ZISWAF') as 'ZISWAF' | 'QURBAN',
       programId: programId,
+      qurbanOwnerName: transaction.qurban_owner_name || '',
+      qurbanAmount: transaction.qurban_amount || '',
+      ziswafProgramId: transaction.ziswaf_program_id || '',
       branchId: branchId,
       teamId: teamId,
       volunteerId: volunteerId,
+      transactionDate: formattedDate,
       status: transaction.status || 'pending'
     });
     
@@ -155,20 +266,28 @@ export default function AllTransactions() {
 
   // Filter teams based on selected branch
   const filteredTeams = formData.branchId 
-    ? teams.filter(team => String(team.branchId) === String(formData.branchId))
+    ? teams.filter(team => {
+        const teamBranchId = team.branchId || team.branch_id;
+        return teamBranchId ? String(teamBranchId) === String(formData.branchId) : false;
+      })
     : teams;
 
   // Filter volunteers based on selected team
   const filteredVolunteers = formData.teamId 
-    ? volunteers.filter(volunteer => String(volunteer.teamId) === String(formData.teamId))
+    ? volunteers.filter(volunteer => {
+        const volunteerTeamId = volunteer.teamId || volunteer.team_id;
+        return volunteerTeamId ? String(volunteerTeamId) === String(formData.teamId) : false;
+      })
     : volunteers;
 
   // Reset team selection when branch changes in edit form
   useEffect(() => {
     if (formData.branchId && formData.teamId) {
-      const isTeamValid = teams.some(team => 
-        String(team.id) === String(formData.teamId) && String(team.branchId) === String(formData.branchId)
-      );
+      const isTeamValid = teams.some(team => {
+        const teamBranchId = team.branchId || team.branch_id;
+        return String(team.id) === String(formData.teamId) && 
+               teamBranchId ? String(teamBranchId) === String(formData.branchId) : false;
+      });
       if (!isTeamValid) {
         console.log('Resetting team selection due to branch change');
         setFormData(prev => ({ ...prev, teamId: '', volunteerId: '' }));
@@ -179,9 +298,11 @@ export default function AllTransactions() {
   // Reset volunteer selection when team changes in edit form
   useEffect(() => {
     if (formData.teamId && formData.volunteerId) {
-      const isVolunteerValid = volunteers.some(volunteer => 
-        String(volunteer.id) === String(formData.volunteerId) && String(volunteer.teamId) === String(formData.teamId)
-      );
+      const isVolunteerValid = volunteers.some(volunteer => {
+        const volunteerTeamId = volunteer.teamId || volunteer.team_id;
+        return String(volunteer.id) === String(formData.volunteerId) && 
+               volunteerTeamId ? String(volunteerTeamId) === String(formData.teamId) : false;
+      });
       if (!isVolunteerValid) {
         console.log('Resetting volunteer selection due to team change');
         setFormData(prev => ({ ...prev, volunteerId: '' }));
@@ -207,8 +328,9 @@ export default function AllTransactions() {
       if (!formData.teamId && transactionTeamId) {
         const foundTeam = teams.find(t => {
           const teamMatches = String(t.id) === transactionTeamId;
-          const branchMatches = String(t.branchId || t.branch_id) === String(formData.branchId);
-          console.log('Team check:', { team: t, teamMatches, branchMatches });
+          const teamBranchId = t.branchId || t.branch_id;
+          const branchMatches = teamBranchId ? String(teamBranchId) === String(formData.branchId) : false;
+          console.log('Team check:', { team: t, teamMatches, branchMatches, teamBranchId });
           return teamMatches && branchMatches;
         });
         
@@ -224,8 +346,9 @@ export default function AllTransactions() {
       if (!formData.volunteerId && transactionVolunteerId && formData.teamId) {
         const foundVolunteer = volunteers.find(v => {
           const volunteerMatches = String(v.id) === transactionVolunteerId;
-          const teamMatches = String(v.teamId || v.team_id) === String(formData.teamId);
-          console.log('Volunteer check:', { volunteer: v, volunteerMatches, teamMatches });
+          const volunteerTeamId = v.teamId || v.team_id;
+          const teamMatches = volunteerTeamId ? String(volunteerTeamId) === String(formData.teamId) : false;
+          console.log('Volunteer check:', { volunteer: v, volunteerMatches, teamMatches, volunteerTeamId });
           return volunteerMatches && teamMatches;
         });
         
@@ -314,12 +437,31 @@ export default function AllTransactions() {
   };
 
   const handleDelete = async (id: string) => {
-    if (window.confirm('Apakah Anda yakin ingin menghapus transaksi ini?')) {
+    const transaction = transactions.find(t => t.id === id);
+    const donorName = transaction?.donorName || transaction?.donor_name || 'Tidak diketahui';
+    
+    if (window.confirm(`Apakah Anda yakin ingin menghapus transaksi dari ${donorName}?\n\nTindakan ini tidak dapat dibatalkan.`)) {
       try {
         await deleteTransaction(id);
-        // Data will be refreshed automatically by useEffect
+        alert('Transaksi berhasil dihapus');
+        
+        // Refresh transactions to ensure UI is updated
+        const params: any = {};
+        if (filters.datePreset && filters.datePreset !== 'all') {
+          params.date_preset = filters.datePreset;
+        } else if (filters.dateFrom || filters.dateTo) {
+          if (filters.dateFrom) params.date_from = filters.dateFrom;
+          if (filters.dateTo) params.date_to = filters.dateTo;
+        }
+        if (filters.branchId) params.branch_id = filters.branchId;
+        if (filters.teamId) params.team_id = filters.teamId;
+        if (filters.status) params.status = filters.status;
+        if (filters.programType) params.program_type = filters.programType;
+        
+        await fetchTransactions(params);
       } catch (err: any) {
-        alert('Gagal menghapus transaksi: ' + err.message);
+        console.error('Error deleting transaction:', err);
+        alert('Gagal menghapus transaksi: ' + (err.response?.data?.message || err.message));
       }
     }
   };
@@ -328,29 +470,96 @@ export default function AllTransactions() {
     e.preventDefault();
     if (!editingTransaction) return;
 
+    // Validation
+    if (!formData.donorName.trim()) {
+      alert('Nama donatur harus diisi');
+      return;
+    }
+    if (!formData.amount || formData.amount <= 0) {
+      alert('Nominal harus lebih dari 0');
+      return;
+    }
+    if (!formData.transferMethod.trim()) {
+      alert('Metode transfer harus diisi');
+      return;
+    }
+    if (!formData.programId) {
+      alert('Program harus dipilih');
+      return;
+    }
+    if (!formData.branchId) {
+      alert('Cabang harus dipilih');
+      return;
+    }
+    if (!formData.teamId) {
+      alert('Tim harus dipilih');
+      return;
+    }
+    if (!formData.volunteerId) {
+      alert('Relawan harus dipilih');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       // Get program type from selected program
       const selectedProgram = programs.find(p => p.id === formData.programId);
       const programType = selectedProgram?.type || 'ZISWAF'; // Default to ZISWAF if not found
       
-      await updateTransaction(editingTransaction.id, {
+      const updateData: any = {
         donor_name: formData.donorName,
-        amount: formData.amount,
         transfer_method: formData.transferMethod,
+        program_type: formData.programType,
         program_id: formData.programId,
-        program_type: programType,
         branch_id: formData.branchId,
         team_id: formData.teamId,
         volunteer_id: formData.volunteerId,
-        transaction_date: editingTransaction.created_at ? editingTransaction.created_at.split('T')[0] : new Date().toISOString().split('T')[0],
+        transaction_date: formData.transactionDate,
         status: formData.status
-      });
+      };
+      
+      // Add qurban fields if program type is QURBAN
+      if (formData.programType === 'QURBAN') {
+        if (formData.qurbanOwnerName) {
+          updateData.qurban_owner_name = formData.qurbanOwnerName;
+        }
+        if (formData.qurbanAmount) {
+          updateData.qurban_amount = formData.qurbanAmount;
+        }
+      }
+      
+      // Add ziswaf fields if selected
+      if (formData.ziswafProgramId) {
+        updateData.ziswaf_program_id = formData.ziswafProgramId;
+      }
+      
+      // Add amount only if it's filled or required (ZISWAF or QURBAN with ziswaf program)
+      if (formData.amount || formData.programType === 'ZISWAF' || formData.ziswafProgramId) {
+        updateData.amount = formData.amount;
+      }
+      
+      const updatedTransaction = await updateTransaction(String(editingTransaction.id), updateData);
       setIsModalOpen(false);
       setEditingTransaction(null);
-      // Data will be refreshed automatically by useEffect
+      alert('Transaksi berhasil diperbarui');
+      
+      // Refresh transactions to ensure UI is updated
+      const params: any = {};
+      if (filters.datePreset && filters.datePreset !== 'all') {
+        params.date_preset = filters.datePreset;
+      } else if (filters.dateFrom || filters.dateTo) {
+        if (filters.dateFrom) params.date_from = filters.dateFrom;
+        if (filters.dateTo) params.date_to = filters.dateTo;
+      }
+      if (filters.branchId) params.branch_id = filters.branchId;
+      if (filters.teamId) params.team_id = filters.teamId;
+      if (filters.status) params.status = filters.status;
+      if (filters.programType) params.program_type = filters.programType;
+      
+      await fetchTransactions(params);
     } catch (err: any) {
-      alert('Gagal memperbarui transaksi: ' + err.message);
+      console.error('Error updating transaction:', err);
+      alert('Gagal memperbarui transaksi: ' + (err.response?.data?.message || err.message));
     } finally {
       setIsSubmitting(false);
     }
@@ -363,19 +572,40 @@ export default function AllTransactions() {
       donorName: '',
       amount: 0,
       transferMethod: '',
+      programType: 'ZISWAF' as 'ZISWAF' | 'QURBAN',
       programId: '',
+      qurbanOwnerName: '',
+      qurbanAmount: '',
+      ziswafProgramId: '',
       branchId: '',
       teamId: '',
       volunteerId: '',
+      transactionDate: '',
       status: 'pending'
     });
   };
 
+
+
   const getBranchName = (transaction: Transaction) => {
-    return transaction.branch?.name || branches.find(b => b.id === transaction.branchId)?.name || '-';
+    if (!transaction) return '-';
+    
+    if (transaction.branch?.name) {
+      return transaction.branch.name;
+    }
+    
+    const branchId = transaction.branchId || transaction.branch_id;
+    if (branchId) {
+      const branch = branches.find(b => String(b.id) === String(branchId));
+      return branch?.name || '-';
+    }
+    
+    return '-';
   };
 
   const getTeamName = (transaction: Transaction) => {
+    if (!transaction) return '-';
+    
     // First check if team object is embedded
     if (transaction.team?.name) {
       return transaction.team.name;
@@ -411,6 +641,8 @@ export default function AllTransactions() {
   };
 
   const getProgramName = (transaction: Transaction) => {
+    if (!transaction) return '-';
+    
     const mainProgram = transaction.program?.name || programs.find(p => p.id === transaction.program_id)?.name || '-';
     
     if (transaction.program_type === 'QURBAN') {
@@ -435,6 +667,8 @@ export default function AllTransactions() {
   };
 
   const getVolunteerName = (transaction: Transaction) => {
+    if (!transaction) return '-';
+    
     // First check if volunteer object is embedded
     if (transaction.volunteer?.name) {
       return transaction.volunteer.name;
@@ -536,36 +770,46 @@ export default function AllTransactions() {
     
     const uniqueBranchIds = Array.from(new Set(
       transactions
-        .map(t => t.branchId || t.branch_id)
+        .filter(t => t != null)
+        .map(t => {
+          const branchId = t.branchId || t.branch_id;
+          return branchId ? String(branchId) : null;
+        })
         .filter(Boolean)
     ));
     
     const uniqueBranches = uniqueBranchIds.length > 0 
       ? uniqueBranchIds
-          .map(branchId => branches.find(b => b.id === branchId))
-          .filter(Boolean)
+          .map(branchId => branches.find(b => String(b.id) === String(branchId)))
+          .filter(branch => branch !== undefined)
       : branches;
     
     const uniqueTeamIds = Array.from(new Set(
       transactions
-        .map(t => t.teamId || t.team_id)
+        .filter(t => t != null)
+        .map(t => {
+          const teamId = t.teamId || t.team_id;
+          return teamId ? String(teamId) : null;
+        })
         .filter(Boolean)
     ));
     
     const uniqueTeams = uniqueTeamIds.length > 0
       ? uniqueTeamIds
-          .map(teamId => teams.find(t => t.id === teamId))
-          .filter(Boolean)
+          .map(teamId => teams.find(t => String(t.id) === String(teamId)))
+          .filter(team => team !== undefined)
       : teams;
     
     const uniqueVolunteers = Array.from(new Set(
       transactions
+        .filter(t => t != null)
         .map(t => getVolunteerName(t))
         .filter(name => name && name !== '-')
     ));
     
     const uniqueBanks = Array.from(new Set(
       transactions
+        .filter(t => t != null)
         .map(t => t.transferMethod || t.transfer_method)
         .filter(Boolean)
     ));
@@ -581,8 +825,77 @@ export default function AllTransactions() {
   const uniqueData = getUniqueValues();
 
   const exportToExcel = () => {
-    // In a real app, this would generate and download an Excel file
-    alert('Fitur export Excel akan segera tersedia');
+    try {
+      // Prepare data for export
+      const exportData = filteredTransactions.map((transaction, index) => {
+        const programName = getProgramName(transaction);
+        const isQurban = programName.toLowerCase().includes('qurban');
+        
+        return {
+          'No': index + 1,
+          'ID Transaksi': transaction.id,
+          'Nama Donatur': transaction.donorName || transaction.donor_name || '-',
+          'Cabang': getBranchName(transaction),
+          'Tim': getTeamName(transaction),
+          'Relawan': getVolunteerName(transaction),
+          'Program': programName,
+          'Jenis Program': isQurban ? 'QURBAN' : 'ZISWAF',
+          'Nominal': transaction.amount || 0,
+          'Nominal Qurban': isQurban && transaction.qurban_amount ? transaction.qurban_amount : '-',
+          'Total Nominal': isQurban && transaction.qurban_amount ? 
+            (transaction.amount || 0) + (transaction.qurban_amount || 0) : 
+            (transaction.amount || 0),
+          'Bank': transaction.transferMethod || transaction.transfer_method || '-',
+          'Status': getStatusLabel(transaction.status),
+          'Alasan': transaction.statusReason || transaction.status_reason || '-',
+          'Tanggal Transaksi': formatDate(transaction.created_at || transaction.createdAt),
+          'Tanggal Update': formatDate(transaction.updated_at || transaction.updatedAt)
+        };
+      });
+
+      // Create workbook and worksheet
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(exportData);
+
+      // Set column widths
+      const colWidths = [
+        { wch: 5 },   // No
+        { wch: 12 },  // ID Transaksi
+        { wch: 20 },  // Nama Donatur
+        { wch: 15 },  // Cabang
+        { wch: 15 },  // Tim
+        { wch: 20 },  // Relawan
+        { wch: 25 },  // Program
+        { wch: 12 },  // Jenis Program
+        { wch: 15 },  // Nominal
+        { wch: 15 },  // Nominal Qurban
+        { wch: 15 },  // Total Nominal
+        { wch: 15 },  // Bank
+        { wch: 15 },  // Status
+        { wch: 20 },  // Alasan
+        { wch: 18 },  // Tanggal Transaksi
+        { wch: 18 }   // Tanggal Update
+      ];
+      ws['!cols'] = colWidths;
+
+      // Add worksheet to workbook
+      XLSX.utils.book_append_sheet(wb, ws, 'Transaksi');
+
+      // Generate filename with current date
+      const now = new Date();
+      const dateStr = now.toISOString().split('T')[0];
+      const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
+      const filename = `Transaksi_${dateStr}_${timeStr}.xlsx`;
+
+      // Save file
+      XLSX.writeFile(wb, filename);
+      
+      // Show success message
+      alert(`Data berhasil diekspor ke file: ${filename}`);
+    } catch (error) {
+      console.error('Error exporting to Excel:', error);
+      alert('Terjadi kesalahan saat mengekspor data ke Excel');
+    }
   };
 
   if (isLoading) {
@@ -606,13 +919,24 @@ export default function AllTransactions() {
           <h1 className="text-3xl font-bold text-gray-900">Semua Transaksi</h1>
           <p className="text-gray-600 mt-2">Kelola dan pantau semua transaksi donasi</p>
         </div>
-        <button
-          onClick={exportToExcel}
-          className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center space-x-2"
-        >
-          <Download className="w-5 h-5" />
-          <span>Export Excel</span>
-        </button>
+        <div className="flex space-x-3">
+          {selectedTransactions.length > 0 && (
+            <button
+              onClick={() => setShowBulkActions(!showBulkActions)}
+              className="bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 flex items-center space-x-2"
+            >
+              <Edit className="w-5 h-5" />
+              <span>Aksi Bulk ({selectedTransactions.length})</span>
+            </button>
+          )}
+          <button
+            onClick={exportToExcel}
+            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center space-x-2"
+          >
+            <Download className="w-5 h-5" />
+            <span>Export Excel</span>
+          </button>
+        </div>
       </div>
 
       {/* Search and Filters */}
@@ -679,96 +1003,148 @@ export default function AllTransactions() {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Cabang
             </label>
-            <select
+            <SearchableSelect
+              options={[
+                { value: '', label: 'Semua Cabang' },
+                ...uniqueData.branches.map(branch => ({
+                  value: branch?.id || '',
+                  label: branch?.name || ''
+                }))
+              ]}
               value={filters.branchId}
-              onChange={(e) => setFilters({ ...filters, branchId: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="">Semua Cabang</option>
-              {uniqueData.branches.map(branch => (
-                <option key={branch.id} value={branch.id}>{branch.name}</option>
-              ))}
-            </select>
+              onChange={(value) => setFilters({ ...filters, branchId: value })}
+              placeholder="Pilih Cabang..."
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Tim
             </label>
-            <select
+            <SearchableSelect
+              options={[
+                { value: '', label: 'Semua Tim' },
+                ...uniqueData.teams.map(team => ({
+                  value: team?.id || '',
+                  label: team?.name || ''
+                }))
+              ]}
               value={filters.teamId}
-              onChange={(e) => setFilters({ ...filters, teamId: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="">Semua Tim</option>
-              {uniqueData.teams.map(team => (
-                <option key={team.id} value={team.id}>{team.name}</option>
-              ))}
-            </select>
+              onChange={(value) => setFilters({ ...filters, teamId: value })}
+              placeholder="Pilih Tim..."
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Nama Relawan
             </label>
-            <select
+            <SearchableSelect
+              options={[
+                { value: '', label: 'Semua Relawan' },
+                ...uniqueData.volunteers.map(volunteerName => ({
+                  value: volunteerName,
+                  label: volunteerName
+                }))
+              ]}
               value={filters.volunteerName}
-              onChange={(e) => setFilters({ ...filters, volunteerName: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="">Semua Relawan</option>
-              {uniqueData.volunteers.map(volunteerName => (
-                <option key={volunteerName} value={volunteerName}>{volunteerName}</option>
-              ))}
-            </select>
+              onChange={(value) => setFilters({ ...filters, volunteerName: value })}
+              placeholder="Pilih Relawan..."
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Bank
             </label>
-            <select
+            <SearchableSelect
+              options={[
+                { value: '', label: 'Semua Bank' },
+                ...uniqueData.banks.map(bankName => ({
+                  value: bankName,
+                  label: bankName
+                }))
+              ]}
               value={filters.bank}
-              onChange={(e) => setFilters({ ...filters, bank: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="">Semua Bank</option>
-              {uniqueData.banks.map(bankName => (
-                <option key={bankName} value={bankName}>{bankName}</option>
-              ))}
-            </select>
+              onChange={(value) => setFilters({ ...filters, bank: value })}
+              placeholder="Pilih Bank..."
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Status
             </label>
-            <select
+            <SearchableSelect
+              options={[
+                { value: '', label: 'Semua Status' },
+                { value: 'pending', label: 'Menunggu Validasi' },
+                { value: 'valid', label: 'Tervalidasi' },
+                { value: 'double_duta', label: 'Double Duta' },
+                { value: 'double_input', label: 'Double Input' },
+                { value: 'not_in_account', label: 'Tidak Ada di Rekening' },
+                { value: 'other', label: 'Lainnya' }
+              ]}
               value={filters.status}
-              onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="">Semua Status</option>
-              <option value="pending">Menunggu Validasi</option>
-              <option value="valid">Tervalidasi</option>
-              <option value="double_duta">Double Duta</option>
-              <option value="double_input">Double Input</option>
-              <option value="not_in_account">Tidak Ada di Rekening</option>
-              <option value="other">Lainnya</option>
-            </select>
+              onChange={(value) => setFilters({ ...filters, status: value })}
+              placeholder="Pilih Status..."
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Jenis Program
             </label>
-            <select
+            <SearchableSelect
+              options={[
+                { value: '', label: 'Semua Jenis' },
+                { value: 'ZISWAF', label: 'ZISWAF' },
+                { value: 'QURBAN', label: 'QURBAN' }
+              ]}
               value={filters.programType}
-              onChange={(e) => setFilters({ ...filters, programType: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="">Semua Jenis</option>
-              <option value="ZISWAF">ZISWAF</option>
-              <option value="QURBAN">QURBAN</option>
-            </select>
+              onChange={(value) => setFilters({ ...filters, programType: value })}
+              placeholder="Pilih Jenis Program..."
+            />
           </div>
         </div>
       </div>
+
+      {/* Bulk Actions Panel */}
+      {selectedTransactions.length > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <span className="text-sm font-medium text-blue-800">
+                {selectedTransactions.length} transaksi dipilih
+              </span>
+              <button
+                onClick={() => setSelectedTransactions([])}
+                className="text-sm text-blue-600 hover:text-blue-800"
+              >
+                Batal Pilih
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={bulkAction}
+                onChange={(e) => setBulkAction(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="">Pilih Aksi</option>
+                <option value="valid">Ubah ke Tervalidasi</option>
+                <option value="pending">Ubah ke Menunggu Validasi</option>
+                <option value="double_duta">Ubah ke Double Duta</option>
+                <option value="double_input">Ubah ke Double Input</option>
+                <option value="not_in_account">Ubah ke Tidak Ada di Rekening</option>
+                <option value="other">Ubah ke Lainnya</option>
+                <option value="delete">Hapus Transaksi</option>
+              </select>
+              <button
+                onClick={handleBulkAction}
+                disabled={!bulkAction || isBulkProcessing}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm font-medium"
+              >
+                {isBulkProcessing ? 'Memproses...' : 'Terapkan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Transactions Table */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -786,6 +1162,14 @@ export default function AllTransactions() {
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
+                <th className="text-left py-4 px-6 font-medium text-gray-700 w-12">
+                  <input
+                    type="checkbox"
+                    checked={selectedTransactions.length === paginatedTransactions.length && paginatedTransactions.length > 0}
+                    onChange={handleSelectAll}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                </th>
                 <th className="text-left py-4 px-6 font-medium text-gray-700">ID</th>
                 <th className="text-left py-4 px-6 font-medium text-gray-700">Donatur</th>
                 <th className="text-left py-4 px-6 font-medium text-gray-700">Cabang</th>
@@ -802,6 +1186,14 @@ export default function AllTransactions() {
             <tbody>
               {paginatedTransactions.map((transaction) => (
                 <tr key={transaction.id} className="border-b border-gray-100">
+                  <td className="py-4 px-6">
+                    <input
+                      type="checkbox"
+                      checked={selectedTransactions.includes(String(transaction.id))}
+                      onChange={() => handleSelectTransaction(String(transaction.id))}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                  </td>
                   <td className="py-4 px-6 text-gray-600">#{transaction.id}</td>
                   <td className="py-4 px-6 font-medium">{transaction.donorName || '-'}</td>
                   <td className="py-4 px-6">{getBranchName(transaction)}</td>
@@ -876,9 +1268,17 @@ export default function AllTransactions() {
           {paginatedTransactions.map((transaction) => (
             <div key={transaction.id} className="border-b border-gray-100 p-4">
               <div className="flex justify-between items-start mb-3">
-                <div>
-                  <h3 className="font-medium text-gray-900">#{transaction.id}</h3>
-                  <p className="text-sm text-gray-600">{transaction.donorName || '-'}</p>
+                <div className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedTransactions.includes(String(transaction.id))}
+                    onChange={() => handleSelectTransaction(String(transaction.id))}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 mt-1"
+                  />
+                  <div>
+                    <h3 className="font-medium text-gray-900">#{transaction.id}</h3>
+                    <p className="text-sm text-gray-600">{transaction.donorName || '-'}</p>
+                  </div>
                 </div>
                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(transaction.status)}`}>
                   {getStatusLabel(transaction.status)}
@@ -929,7 +1329,7 @@ export default function AllTransactions() {
                 </div>
                 <div>
                   <span className="text-gray-500">Program:</span>
-                  <p className="text-gray-900">{getProgramName(transaction)}</p>
+                  <div className="text-gray-900">{getProgramName(transaction)}</div>
                 </div>
               </div>
               
@@ -1060,7 +1460,91 @@ export default function AllTransactions() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Nominal
+                      Jenis Program
+                    </label>
+                    <select
+                      value={formData.programType}
+                      onChange={(e) => setFormData({ 
+                        ...formData, 
+                        programType: e.target.value as 'ZISWAF' | 'QURBAN',
+                        programId: ''
+                      })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      required
+                    >
+                      <option value="ZISWAF">ZISWAF</option>
+                      <option value="QURBAN">QURBAN</option>
+                    </select>
+                  </div>
+                </div>
+                
+                {/* Nama Pengqurban - Only for QURBAN */}
+                {formData.programType === 'QURBAN' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Nama Pengqurban
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.qurbanOwnerName}
+                        onChange={(e) => setFormData({ ...formData, qurbanOwnerName: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        placeholder="Masukkan nama pengqurban"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Nominal Qurban
+                      </label>
+                      <div className="relative">
+                        <span className="text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2 font-medium text-sm">Rp</span>
+                        <input
+                          type="text"
+                          value={formatCurrencyInput(String(formData.qurbanAmount))}
+                          onChange={(e) => {
+                            const value = e.target.value.replace(/\D/g, '');
+                            setFormData({ ...formData, qurbanAmount: value });
+                          }}
+                          className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                          placeholder="0"
+                          required
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Nilai: Rp {Number(formData.qurbanAmount) || 0}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Program ZISWAF - Optional for QURBAN */}
+                {formData.programType === 'QURBAN' && (
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Program ZISWAF (Opsional)
+                    </label>
+                    <select
+                      value={formData.ziswafProgramId}
+                      onChange={(e) => setFormData({ ...formData, ziswafProgramId: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    >
+                      <option value="">Pilih Program ZISWAF (Opsional)</option>
+                      {programs.filter(program => program.type === 'ZISWAF').map(program => (
+                        <option key={program.id} value={program.id}>
+                          {program.name} ({program.code})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                
+                {/* Amount - Always visible for ZISWAF, only visible for QURBAN when ZISWAF program selected */}
+                {(formData.programType === 'ZISWAF' || (formData.programType === 'QURBAN' && formData.ziswafProgramId)) && (
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Nominal Donasi
                     </label>
                     <div className="relative">
                       <span className="text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2 font-medium text-sm">Rp</span>
@@ -1080,36 +1564,59 @@ export default function AllTransactions() {
                       Nilai: Rp {Number(formData.amount) || 0}
                     </p>
                   </div>
-                </div>
+                )}
+                
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Metode Transfer
+                      Tanggal Transaksi
                     </label>
                     <input
-                      type="text"
-                      value={formData.transferMethod}
-                      onChange={(e) => setFormData({ ...formData, transferMethod: e.target.value })}
+                      type="date"
+                      value={formData.transactionDate}
+                      onChange={(e) => setFormData({ ...formData, transactionDate: e.target.value })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                       required
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Program
+                      Metode Transfer
                     </label>
                     <select
-                      value={formData.programId}
-                      onChange={(e) => setFormData({ ...formData, programId: e.target.value })}
+                      value={formData.transferMethod}
+                      onChange={(e) => setFormData({ ...formData, transferMethod: e.target.value })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                       required
                     >
-                      <option value="">Pilih Program</option>
-                      {programs.map(program => (
-                        <option key={program.id} value={program.id}>{program.name}</option>
+                      <option value="">Pilih Metode Transfer</option>
+                      {paymentMethods.map(method => (
+                        <option key={method.id} value={method.name}>{method.name}</option>
                       ))}
                     </select>
                   </div>
+                </div>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    {formData.programType === 'QURBAN' ? 'Type Hewan Qurban' : 'Program'}
+                  </label>
+                  <select
+                    value={formData.programId}
+                    onChange={(e) => setFormData({ ...formData, programId: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    required
+                  >
+                    <option value="">
+                      {formData.programType === 'QURBAN' ? 'Pilih Type Hewan Qurban' : 'Pilih Program'}
+                    </option>
+                    {programs
+                      .filter(program => program.type === formData.programType)
+                      .map(program => (
+                        <option key={program.id} value={program.id}>
+                          {program.name} ({program.code})
+                        </option>
+                      ))}
+                  </select>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                   <div>
@@ -1142,9 +1649,9 @@ export default function AllTransactions() {
                       <option value="">{!formData.branchId ? 'Pilih cabang terlebih dahulu' : 'Pilih Tim'}</option>
                       {teams
                         .filter(team => {
-                          const teamBranchId = String(team.branchId || team.branch_id || '');
+                          const teamBranchId = team.branchId || team.branch_id;
                           const selectedBranchId = String(formData.branchId);
-                          return teamBranchId === selectedBranchId;
+                          return teamBranchId ? String(teamBranchId) === selectedBranchId : false;
                         })
                         .map(team => (
                           <option key={team.id} value={team.id}>{team.name}</option>
@@ -1167,9 +1674,9 @@ export default function AllTransactions() {
                       <option value="">{!formData.teamId ? 'Pilih tim terlebih dahulu' : 'Pilih Relawan'}</option>
                       {volunteers
                         .filter(volunteer => {
-                          const volunteerTeamId = String(volunteer.teamId || volunteer.team_id || '');
+                          const volunteerTeamId = volunteer.teamId || volunteer.team_id;
                           const selectedTeamId = String(formData.teamId);
-                          return volunteerTeamId === selectedTeamId;
+                          return volunteerTeamId ? String(volunteerTeamId) === selectedTeamId : false;
                         })
                         .map(volunteer => (
                           <option key={volunteer.id} value={volunteer.id}>{volunteer.name}</option>

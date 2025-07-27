@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Upload, Save, Loader } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth.tsx';
 import { useBranches } from '../../hooks/useBranches';
@@ -18,11 +18,12 @@ export default function TransactionInput() {
   const { paymentMethods } = usePaymentMethods();
   const { getUsersByTeam } = useUsers();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [volunteers, setVolunteers] = useState<User[]>([]);
   const [branchTeams, setBranchTeams] = useState<Team[]>([]);
   const [formData, setFormData] = useState({
-    branchId: user?.role === 'volunteer' ? user.branchId : '',
-    teamId: user?.role === 'volunteer' ? user.teamId : '',
+    branchId: user?.role === 'volunteer' ? (user.branchId || (user as any).branch_id || '') : '',
+    teamId: user?.role === 'volunteer' ? (user.teamId || (user as any).team_id || '') : '',
     volunteerId: user?.role === 'volunteer' ? user.id : '',
     programType: 'ZISWAF' as 'ZISWAF' | 'QURBAN',
     programId: '',
@@ -44,7 +45,7 @@ export default function TransactionInput() {
     return String(volunteerTeamId) === String(formData.teamId);
   });
 
-  // Load teams when branch changes
+  // Load teams when branch changes or component mounts
   useEffect(() => {
     const loadTeamsByBranch = async () => {
       if (formData.branchId) {
@@ -69,7 +70,7 @@ export default function TransactionInput() {
     loadTeamsByBranch();
   }, [formData.branchId]);
 
-  // Load volunteers when team changes
+  // Load volunteers when team changes or component mounts
   useEffect(() => {
     const loadVolunteers = async () => {
       if (formData.teamId) {
@@ -86,7 +87,9 @@ export default function TransactionInput() {
     };
 
     loadVolunteers();
-  }, [formData.teamId]);
+  }, [formData.teamId, getUsersByTeam]);
+
+
 
   // Reset team and volunteer when branch changes
   const handleBranchChange = (branchId: string) => {
@@ -168,8 +171,8 @@ export default function TransactionInput() {
       
       // Reset form
       setFormData({
-        branchId: user?.role === 'volunteer' ? user.branchId : '',
-        teamId: user?.role === 'volunteer' ? user.teamId : '',
+        branchId: user?.role === 'volunteer' ? (user.branchId || (user as any).branch_id || '') : '',
+        teamId: user?.role === 'volunteer' ? (user.teamId || (user as any).team_id || '') : '',
         volunteerId: user?.role === 'volunteer' ? user.id : '',
         programType: 'ZISWAF',
         programId: '',
@@ -182,9 +185,28 @@ export default function TransactionInput() {
         proofImage: null,
         datetime: new Date().toISOString().slice(0, 16)
       });
-    } catch (error) {
+      
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    } catch (error: any) {
       console.error('Error saving transaction:', error);
-      alert('Terjadi kesalahan saat menyimpan transaksi');
+      
+      // Handle different types of errors
+      let errorMessage = 'Terjadi kesalahan saat menyimpan transaksi';
+      
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response?.data?.errors) {
+        // Handle validation errors
+        const validationErrors = Object.values(error.response.data.errors).flat();
+        errorMessage = `Data tidak valid: ${validationErrors.join(', ')}`;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      alert(errorMessage);
     } finally {
       setIsSubmitting(false);
     }
@@ -211,18 +233,23 @@ export default function TransactionInput() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Cabang/Kantor *
                 </label>
-                <select
-                  value={formData.branchId}
-                  onChange={(e) => handleBranchChange(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                  disabled={user?.role === 'volunteer'}
-                >
-                  <option value="">Pilih Cabang</option>
-                  {branches.map(branch => (
-                    <option key={branch.id} value={branch.id}>{branch.name}</option>
-                  ))}
-                </select>
+                {user?.role === 'volunteer' ? (
+                  <div className="w-full px-4 py-3 border border-gray-200 rounded-lg bg-gray-50 text-gray-700">
+                    {branches.find(branch => branch.id === formData.branchId)?.name || 'Cabang tidak ditemukan'}
+                  </div>
+                ) : (
+                  <select
+                    value={formData.branchId}
+                    onChange={(e) => handleBranchChange(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  >
+                    <option value="">Pilih Cabang</option>
+                    {branches.map(branch => (
+                      <option key={branch.id} value={branch.id}>{branch.name}</option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               {/* Team Selection */}
@@ -230,21 +257,27 @@ export default function TransactionInput() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Tim Relawan *
                 </label>
-                <select
-                  value={formData.teamId}
-                  onChange={(e) => handleTeamChange(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                  disabled={!formData.branchId || user?.role === 'volunteer'}
-                >
-                  <option value="">
-                    {!formData.branchId ? 'Pilih cabang terlebih dahulu' : 
-                     branchTeams.length === 0 ? 'Tidak ada tim tersedia' : 'Pilih Tim'}
-                  </option>
-                  {branchTeams.map(team => (
-                    <option key={team.id} value={team.id}>{team.name}</option>
-                  ))}
-                </select>
+                {user?.role === 'volunteer' ? (
+                  <div className="w-full px-4 py-3 border border-gray-200 rounded-lg bg-gray-50 text-gray-700">
+                    {branchTeams.find(team => team.id === formData.teamId)?.name || 'Tim tidak ditemukan'}
+                  </div>
+                ) : (
+                  <select
+                    value={formData.teamId}
+                    onChange={(e) => handleTeamChange(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                    disabled={!formData.branchId}
+                  >
+                    <option value="">
+                      {!formData.branchId ? 'Pilih cabang terlebih dahulu' : 
+                       branchTeams.length === 0 ? 'Tidak ada tim tersedia' : 'Pilih Tim'}
+                    </option>
+                    {branchTeams.map(team => (
+                      <option key={team.id} value={team.id}>{team.name}</option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               {/* Volunteer Selection */}
@@ -252,21 +285,27 @@ export default function TransactionInput() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Relawan *
                 </label>
-                <select
-                  value={formData.volunteerId}
-                  onChange={(e) => setFormData({ ...formData, volunteerId: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                  disabled={!formData.teamId || user?.role === 'volunteer'}
-                >
-                  <option value="">
-                    {!formData.teamId ? 'Pilih tim terlebih dahulu' : 
-                     filteredVolunteers.length === 0 ? 'Tidak ada relawan tersedia' : 'Pilih Relawan'}
-                  </option>
-                  {filteredVolunteers.map(volunteer => (
-                    <option key={volunteer.id} value={volunteer.id}>{volunteer.name}</option>
-                  ))}
-                </select>
+                {user?.role === 'volunteer' ? (
+                  <div className="w-full px-4 py-3 border border-gray-200 rounded-lg bg-gray-50 text-gray-700">
+                    {user.name}
+                  </div>
+                ) : (
+                  <select
+                    value={formData.volunteerId}
+                    onChange={(e) => setFormData({ ...formData, volunteerId: e.target.value })}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                    disabled={!formData.teamId}
+                  >
+                    <option value="">
+                      {!formData.teamId ? 'Pilih tim terlebih dahulu' : 
+                       filteredVolunteers.length === 0 ? 'Tidak ada relawan tersedia' : 'Pilih Relawan'}
+                    </option>
+                    {filteredVolunteers.map(volunteer => (
+                      <option key={volunteer.id} value={volunteer.id}>{volunteer.name}</option>
+                    ))}
+                  </select>
+                )}
               </div>
 
             </div>
@@ -488,6 +527,7 @@ export default function TransactionInput() {
                     <label className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
                       <span>Upload file</span>
                       <input
+                        ref={fileInputRef}
                         type="file"
                         className="sr-only"
                         accept="image/jpeg,image/png,image/jpg,image/gif,image/webp"

@@ -5,6 +5,10 @@ export interface DashboardFilterType {
   filter_type: 'current_month' | 'one_month_ago' | 'two_months_ago' | 'all' | 'date_range';
   start_date?: string;
   end_date?: string;
+  branch_id?: string;
+  team_id?: string;
+  volunteer_id?: string;
+  program_name?: string;
 }
 
 export interface TransactionStats {
@@ -39,6 +43,7 @@ export interface BranchStats {
 export interface ProgramPerformance {
   program_id: number;
   program_name: string;
+  program_type: string;
   transaction_count: number;
   total_amount: number;
 }
@@ -52,6 +57,19 @@ export interface MonthlyTrend {
   month: string;
   transaction_count: number;
   total_amount: number;
+  ziswaf_amount?: number;
+  qurban_amount?: number;
+}
+
+export interface VolunteerPerformance {
+  volunteer_id: number;
+  volunteer_name: string;
+  transaction_count: number;
+  total_amount: number;
+}
+
+export interface VolunteerStats {
+  top_volunteers: VolunteerPerformance[];
 }
 
 export interface ProgramMonthlyData {
@@ -87,6 +105,7 @@ export interface DashboardData {
   user_stats: UserStats;
   branch_stats: BranchStats;
   program_stats: ProgramStats;
+  volunteer_stats?: VolunteerStats;
   monthly_trend: MonthlyTrend[];
   program_trend: ProgramTrend[];
   recent_transactions: RecentTransaction[];
@@ -110,24 +129,38 @@ export function useDashboard() {
       setError(null);
       
       const filterToUse = filter || currentFilter;
-      const params = new URLSearchParams();
       
-      params.append('filter_type', filterToUse.filter_type);
+      // Prepare parameters for API call
+      const apiParams: any = {
+        filter_type: filterToUse.filter_type
+      };
       
       if (filterToUse.filter_type === 'date_range') {
         if (filterToUse.start_date) {
-          params.append('start_date', filterToUse.start_date);
+          apiParams.start_date = filterToUse.start_date;
         }
         if (filterToUse.end_date) {
-          params.append('end_date', filterToUse.end_date);
+          apiParams.end_date = filterToUse.end_date;
         }
       }
       
-      const response = await dashboardAPI.getData({
-         filter_type: filterToUse.filter_type,
-         start_date: filterToUse.start_date,
-         end_date: filterToUse.end_date
-       });
+      // Add filter parameters
+      if (filterToUse.branch_id) {
+        apiParams.branch_id = filterToUse.branch_id;
+      }
+      if (filterToUse.team_id) {
+        apiParams.team_id = filterToUse.team_id;
+      }
+      if (filterToUse.volunteer_id) {
+        apiParams.volunteer_id = filterToUse.volunteer_id;
+      }
+      if (filterToUse.program_name) {
+        apiParams.program_name = filterToUse.program_name; // Backend expects program_name
+      }
+      
+      console.log('Sending dashboard API request with params:', apiParams);
+      
+      const response = await dashboardAPI.getData(apiParams);
       
       if (response && response.data) {
           setDashboardData(response.data);

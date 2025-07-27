@@ -62,17 +62,17 @@ export function useTransactions() {
     }
   };
 
-  const validateTransaction = async (id: string, status: 'validated' | 'rejected', notes?: string) => {
+  const validateTransaction = async (id: string | number, status: 'validated' | 'rejected', notes?: string) => {
     try {
-      const response = await transactionsAPI.validate(id, status, notes);
+      const response = await transactionsAPI.validate(String(id), status, notes);
       const updatedTransaction = response.data;
       
       setTransactions(prev => prev.map(transaction => 
-        transaction.id === id ? updatedTransaction : transaction
+        String(transaction.id) === String(id) ? updatedTransaction : transaction
       ));
       
       setMyTransactions(prev => prev.map(transaction => 
-        transaction.id === id ? updatedTransaction : transaction
+        String(transaction.id) === String(id) ? updatedTransaction : transaction
       ));
       
       return updatedTransaction;
@@ -81,17 +81,17 @@ export function useTransactions() {
     }
   };
 
-  const updateTransaction = async (id: string, data: Partial<Transaction>) => {
+  const updateTransaction = async (id: string | number, data: Partial<Transaction>) => {
     try {
-      const response = await transactionsAPI.update(id, data);
+      const response = await transactionsAPI.update(String(id), data);
       const updatedTransaction = response.data;
       
       setTransactions(prev => prev.map(transaction => 
-        transaction.id === id ? updatedTransaction : transaction
+        String(transaction.id) === String(id) ? updatedTransaction : transaction
       ));
       
       setMyTransactions(prev => prev.map(transaction => 
-        transaction.id === id ? updatedTransaction : transaction
+        String(transaction.id) === String(id) ? updatedTransaction : transaction
       ));
       
       return updatedTransaction;
@@ -100,11 +100,34 @@ export function useTransactions() {
     }
   };
 
-  const deleteTransaction = async (id: string) => {
+  const bulkUpdateStatus = async (transactionIds: string[], status: string) => {
     try {
-      await transactionsAPI.delete(id);
-      setTransactions(prev => prev.filter(transaction => transaction.id !== id));
-      setMyTransactions(prev => prev.filter(transaction => transaction.id !== id));
+      const response = await transactionsAPI.bulkUpdateStatus(transactionIds, status);
+      
+      // Update local state for affected transactions
+      setTransactions(prev => prev.map(transaction => 
+        transactionIds.includes(String(transaction.id)) 
+          ? { ...transaction, status: status as Transaction['status'] }
+          : transaction
+      ));
+      
+      setMyTransactions(prev => prev.map(transaction => 
+        transactionIds.includes(String(transaction.id)) 
+          ? { ...transaction, status: status as Transaction['status'] }
+          : transaction
+      ));
+      
+      return response;
+    } catch (err: any) {
+      throw new Error(err.response?.data?.message || 'Failed to bulk update transaction status');
+    }
+  };
+
+  const deleteTransaction = async (id: string | number) => {
+    try {
+      await transactionsAPI.delete(String(id));
+      setTransactions(prev => prev.filter(transaction => String(transaction.id) !== String(id)));
+      setMyTransactions(prev => prev.filter(transaction => String(transaction.id) !== String(id)));
     } catch (err: any) {
       throw new Error(err.response?.data?.message || 'Failed to delete transaction');
     }
@@ -120,6 +143,7 @@ export function useTransactions() {
     createTransaction,
     validateTransaction,
     updateTransaction,
+    bulkUpdateStatus,
     deleteTransaction,
   };
 }

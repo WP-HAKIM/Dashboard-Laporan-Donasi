@@ -8,6 +8,7 @@ import { usePrograms } from '../../hooks/usePrograms';
 import { usePaymentMethods } from '../../hooks/usePaymentMethods';
 import { useUsers } from '../../hooks/useUsers';
 import Loader from '../Common/Loader';
+import SearchableSelect from '../Common/SearchableSelect';
 
 export default function ValidationView() {
   const { transactions, isLoading, error, validateTransaction } = useTransactions();
@@ -448,61 +449,69 @@ export default function ValidationView() {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Cabang
             </label>
-            <select
+            <SearchableSelect
+              options={[
+                { value: '', label: 'Semua Cabang' },
+                ...uniqueData.branches.map(branch => ({
+                  value: branch.id,
+                  label: branch.name
+                }))
+              ]}
               value={filters.branchId}
-              onChange={(e) => setFilters({ ...filters, branchId: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="">Semua Cabang</option>
-              {uniqueData.branches.map(branch => (
-                <option key={branch.id} value={branch.id}>{branch.name}</option>
-              ))}
-            </select>
+              onChange={(value) => setFilters({ ...filters, branchId: value })}
+              placeholder="Pilih Cabang..."
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Tim
             </label>
-            <select
+            <SearchableSelect
+              options={[
+                { value: '', label: 'Semua Tim' },
+                ...uniqueData.teams.map(team => ({
+                  value: team.id,
+                  label: team.name
+                }))
+              ]}
               value={filters.teamId}
-              onChange={(e) => setFilters({ ...filters, teamId: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="">Semua Tim</option>
-              {uniqueData.teams.map(team => (
-                <option key={team.id} value={team.id}>{team.name}</option>
-              ))}
-            </select>
+              onChange={(value) => setFilters({ ...filters, teamId: value })}
+              placeholder="Pilih Tim..."
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Nama Relawan
             </label>
-            <select
+            <SearchableSelect
+              options={[
+                { value: '', label: 'Semua Relawan' },
+                ...uniqueData.volunteers.map(volunteerName => ({
+                  value: volunteerName,
+                  label: volunteerName
+                }))
+              ]}
               value={filters.volunteerName}
-              onChange={(e) => setFilters({ ...filters, volunteerName: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="">Semua Relawan</option>
-              {uniqueData.volunteers.map(volunteerName => (
-                <option key={volunteerName} value={volunteerName}>{volunteerName}</option>
-              ))}
-            </select>
+              onChange={(value) => setFilters({ ...filters, volunteerName: value })}
+              placeholder="Pilih Relawan..."
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Bank
             </label>
-            <select
+            <SearchableSelect
+              options={[
+                { value: '', label: 'Semua Bank' },
+                ...uniqueData.banks.map(bankName => ({
+                  value: bankName,
+                  label: bankName
+                }))
+              ]}
               value={filters.bank}
-              onChange={(e) => setFilters({ ...filters, bank: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="">Semua Bank</option>
-              {uniqueData.banks.map(bankName => (
-                <option key={bankName} value={bankName}>{bankName}</option>
-              ))}
-            </select>
+              onChange={(value) => setFilters({ ...filters, bank: value })}
+              placeholder="Pilih Bank..."
+            />
           </div>
         </div>
       </div>
@@ -651,7 +660,7 @@ export default function ValidationView() {
                 </div>
                 <div>
                   <span className="text-gray-500">Program:</span>
-                  <p className="font-medium">{getProgramName(transaction)}</p>
+                  <div className="font-medium">{getProgramName(transaction)}</div>
                 </div>
                 <div>
                   <span className="text-gray-500">Bank:</span>

@@ -4,8 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\PaymentMethod;
+use App\Http\Requests\StorePaymentMethodRequest;
+use App\Http\Requests\UpdatePaymentMethodRequest;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Exception;
 
 class PaymentMethodController extends Controller
 {
@@ -14,8 +17,20 @@ class PaymentMethodController extends Controller
      */
     public function index(): JsonResponse
     {
-        $paymentMethods = PaymentMethod::orderBy('name')->get();
-        return response()->json($paymentMethods);
+        try {
+            $paymentMethods = PaymentMethod::orderBy('name')->get();
+            return response()->json([
+                'success' => true,
+                'data' => $paymentMethods,
+                'message' => 'Payment methods retrieved successfully'
+            ]);
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve payment methods',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
@@ -29,16 +44,25 @@ class PaymentMethodController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(Request $request): JsonResponse
+    public function store(StorePaymentMethodRequest $request): JsonResponse
     {
-        $request->validate([
-            'name' => 'required|string|max:255|unique:payment_methods',
-            'description' => 'nullable|string|max:500',
-            'is_active' => 'boolean'
-        ]);
+        try {
+            $validatedData = $request->validated();
 
-        $paymentMethod = PaymentMethod::create($request->all());
-        return response()->json($paymentMethod, 201);
+            $paymentMethod = PaymentMethod::create($validatedData);
+            
+            return response()->json([
+                'success' => true,
+                'data' => $paymentMethod,
+                'message' => 'Payment method created successfully'
+            ], 201);
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to create payment method',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
@@ -46,7 +70,19 @@ class PaymentMethodController extends Controller
      */
     public function show(PaymentMethod $paymentMethod): JsonResponse
     {
-        return response()->json($paymentMethod);
+        try {
+            return response()->json([
+                'success' => true,
+                'data' => $paymentMethod,
+                'message' => 'Payment method retrieved successfully'
+            ]);
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve payment method',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
@@ -60,16 +96,25 @@ class PaymentMethodController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, PaymentMethod $paymentMethod): JsonResponse
+    public function update(UpdatePaymentMethodRequest $request, PaymentMethod $paymentMethod): JsonResponse
     {
-        $request->validate([
-            'name' => 'required|string|max:255|unique:payment_methods,name,' . $paymentMethod->id,
-            'description' => 'nullable|string|max:500',
-            'is_active' => 'boolean'
-        ]);
+        try {
+            $validatedData = $request->validated();
 
-        $paymentMethod->update($request->all());
-        return response()->json($paymentMethod);
+            $paymentMethod->update($validatedData);
+            
+            return response()->json([
+                'success' => true,
+                'data' => $paymentMethod->fresh(),
+                'message' => 'Payment method updated successfully'
+            ]);
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update payment method',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
@@ -77,7 +122,29 @@ class PaymentMethodController extends Controller
      */
     public function destroy(PaymentMethod $paymentMethod): JsonResponse
     {
-        $paymentMethod->delete();
-        return response()->json(['message' => 'Payment method deleted successfully']);
+        try {
+            // Check if payment method is being used in transactions
+            $transactionCount = $paymentMethod->transactions()->count();
+            
+            if ($transactionCount > 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Cannot delete payment method. It is being used in ' . $transactionCount . ' transaction(s).'
+                ], 409);
+            }
+
+            $paymentMethod->delete();
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Payment method deleted successfully'
+            ]);
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to delete payment method',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 }
