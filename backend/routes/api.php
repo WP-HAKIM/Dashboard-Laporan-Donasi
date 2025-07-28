@@ -37,6 +37,7 @@ Route::middleware('auth:sanctum')->group(function () {
     
     // Program routes
     Route::apiResource('programs', ProgramController::class);
+    Route::post('/programs/update-transaction-rates', [ProgramController::class, 'updateAllTransactionRates']);
     
     // Payment Method routes (admin only)
     Route::middleware('role:admin')->group(function () {
@@ -51,5 +52,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/transactions/{transaction}/validate', [TransactionController::class, 'validate']);
     Route::post('/transactions/bulk-update-status', [TransactionController::class, 'bulkUpdateStatus']);
     Route::get('/my-transactions', [TransactionController::class, 'myTransactions']);
+    Route::get('/my-transactions-stats', [TransactionController::class, 'myTransactionsStats']);
     Route::get('/pending-transactions', [TransactionController::class, 'pending']);
 });

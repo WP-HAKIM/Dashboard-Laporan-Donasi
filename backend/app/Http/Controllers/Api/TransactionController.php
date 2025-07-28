@@ -16,7 +16,7 @@ class TransactionController extends Controller
     public function index(Request $request)
     {
         // Use same preload as dashboard for consistency
-        $query = Transaction::with(['branch', 'team', 'volunteer', 'program', 'validator']);
+        $query = Transaction::with(['branch', 'team', 'volunteer', 'program', 'validator', 'paymentMethod']);
 
         // If user is volunteer, filter by their data automatically
         $user = $request->user();
@@ -116,7 +116,7 @@ class TransactionController extends Controller
                 'qurban_amount' => 'nullable|numeric|min:0',
                 'ziswaf_program_id' => 'nullable|exists:programs,id',
                 'transaction_date' => 'required|date',
-                'transfer_method' => 'required|string|max:255',
+                'payment_method_id' => 'required|exists:payment_methods,id',
                 'proof_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
             ];
 
@@ -138,6 +138,15 @@ class TransactionController extends Controller
                 $data['branch_rate'] = $program->branch_rate;
             }
 
+            // Get ZISWAF program rates if ziswaf_program_id is provided
+            if ($request->ziswaf_program_id) {
+                $ziswafProgram = Program::find($request->ziswaf_program_id);
+                if ($ziswafProgram) {
+                    $data['ziswaf_volunteer_rate'] = $ziswafProgram->volunteer_rate;
+                    $data['ziswaf_branch_rate'] = $ziswafProgram->branch_rate;
+                }
+            }
+
             // Handle file upload
             if ($request->hasFile('proof_image')) {
                 $path = $request->file('proof_image')->store('transaction-proofs', 'public');
@@ -147,7 +156,7 @@ class TransactionController extends Controller
             $transaction = Transaction::create($data);
             return response()->json([
                 'success' => true,
-                'data' => $transaction->load(['branch', 'team', 'volunteer', 'program']),
+                'data' => $transaction->load(['branch', 'team', 'volunteer', 'program', 'paymentMethod']),
                 'message' => 'Transaksi berhasil disimpan'
             ], 201);
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -174,7 +183,7 @@ class TransactionController extends Controller
      */
     public function show(Transaction $transaction)
     {
-        return response()->json($transaction->load(['branch', 'team', 'volunteer', 'program', 'validator']));
+        return response()->json($transaction->load(['branch', 'team', 'volunteer', 'program', 'validator', 'paymentMethod']));
     }
 
     /**
@@ -193,7 +202,7 @@ class TransactionController extends Controller
             'qurban_amount' => 'nullable|numeric|min:0',
             'ziswaf_program_id' => 'nullable|exists:programs,id',
             'transaction_date' => 'required|date',
-            'transfer_method' => 'required|string|max:255',
+            'payment_method_id' => 'required|exists:payment_methods,id',
             'proof_image' => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
         ];
 
@@ -217,6 +226,19 @@ class TransactionController extends Controller
             }
         }
 
+        // Get ZISWAF program rates if ziswaf_program_id is being updated
+        if ($request->has('ziswaf_program_id') && $request->ziswaf_program_id) {
+            $ziswafProgram = Program::find($request->ziswaf_program_id);
+            if ($ziswafProgram) {
+                $data['ziswaf_volunteer_rate'] = $ziswafProgram->volunteer_rate;
+                $data['ziswaf_branch_rate'] = $ziswafProgram->branch_rate;
+            }
+        } elseif ($request->has('ziswaf_program_id') && !$request->ziswaf_program_id) {
+            // Clear ZISWAF rates if ziswaf_program_id is being removed
+            $data['ziswaf_volunteer_rate'] = null;
+            $data['ziswaf_branch_rate'] = null;
+        }
+
         // Handle file upload
         if ($request->hasFile('proof_image')) {
             // Delete old image if exists
@@ -228,7 +250,7 @@ class TransactionController extends Controller
         }
 
         $transaction->update($data);
-        return response()->json($transaction->load(['branch', 'team', 'volunteer', 'program', 'validator']));
+        return response()->json($transaction->load(['branch', 'team', 'volunteer', 'program', 'validator', 'paymentMethod']));
     }
 
     /**
@@ -262,7 +284,7 @@ class TransactionController extends Controller
             'validated_by' => $request->user()->id,
         ]);
 
-        return response()->json($transaction->load(['branch', 'team', 'volunteer', 'program', 'validator']));
+        return response()->json($transaction->load(['branch', 'team', 'volunteer', 'program', 'validator', 'paymentMethod']));
     }
 
     /**
@@ -274,7 +296,7 @@ class TransactionController extends Controller
         $user = $request->user();
         
         // Use same preload as dashboard for consistency
-        $query = Transaction::with(['branch', 'team', 'volunteer', 'program', 'validator'])
+        $query = Transaction::with(['branch', 'team', 'volunteer', 'program', 'validator', 'paymentMethod'])
             ->where('volunteer_id', $user->id);
             
         // Also filter by user's branch and team for consistency
@@ -313,7 +335,7 @@ class TransactionController extends Controller
      */
     public function pending(Request $request)
     {
-        $query = Transaction::with(['branch', 'team', 'volunteer', 'program'])
+        $query = Transaction::with(['branch', 'team', 'volunteer', 'program', 'paymentMethod'])
             ->where('status', 'pending');
 
         // If user is branch role, only show transactions from their branch
@@ -323,6 +345,69 @@ class TransactionController extends Controller
 
         $transactions = $query->orderBy('created_at', 'asc')->paginate(20);
         return response()->json($transactions);
+    }
+
+    /**
+     * Get my transactions statistics
+     */
+    public function myTransactionsStats(Request $request)
+    {
+        $user = $request->user();
+        
+        // Base query for user's transactions
+        $query = Transaction::with(['program'])
+            ->where('volunteer_id', $user->id)
+            ->where('status', 'valid'); // Only validated transactions
+            
+        // Also filter by user's branch and team for consistency
+        if ($user->branch_id || $user->branchId) {
+            $query->where('branch_id', $user->branch_id ?? $user->branchId);
+        }
+        if ($user->team_id || $user->teamId) {
+            $query->where('team_id', $user->team_id ?? $user->teamId);
+        }
+        
+        $transactions = $query->get();
+        
+        // Calculate ZISWAF total (amount from ZISWAF transactions + amount from QURBAN with ziswaf_program_id)
+        $ziswafTotal = $transactions->where('program_type', 'ZISWAF')->sum('amount') +
+                      $transactions->where('program_type', 'QURBAN')
+                                  ->whereNotNull('ziswaf_program_id')
+                                  ->sum('amount');
+        
+        // Calculate QURBAN total (qurban_amount from QURBAN transactions)
+        $qurbanTotal = $transactions->where('program_type', 'QURBAN')->sum('qurban_amount');
+        
+        // Calculate Volunteer Regulation with proper rates
+        $volunteerRegulation = 0;
+        foreach ($transactions as $transaction) {
+            // For ZISWAF transactions, use volunteer_rate
+            if ($transaction->program_type === 'ZISWAF' && $transaction->amount > 0) {
+                $volunteerRate = $transaction->volunteer_rate ?? 0;
+                $volunteerRegulation += $transaction->amount * ($volunteerRate / 100);
+            }
+            
+            // For QURBAN transactions
+            if ($transaction->program_type === 'QURBAN') {
+                // QURBAN amount uses volunteer_rate from QURBAN program
+                if ($transaction->qurban_amount > 0) {
+                    $volunteerRate = $transaction->volunteer_rate ?? 0;
+                    $volunteerRegulation += $transaction->qurban_amount * ($volunteerRate / 100);
+                }
+                
+                // ZISWAF amount (when ziswaf_program_id exists) uses ziswaf_volunteer_rate
+                if ($transaction->amount > 0 && $transaction->ziswaf_program_id) {
+                    $ziswafVolunteerRate = $transaction->ziswaf_volunteer_rate ?? 0;
+                    $volunteerRegulation += $transaction->amount * ($ziswafVolunteerRate / 100);
+                }
+            }
+        }
+        
+        return response()->json([
+            'ziswaf_total' => $ziswafTotal,
+            'qurban_total' => $qurbanTotal,
+            'volunteer_regulation' => $volunteerRegulation,
+        ]);
     }
 
     /**

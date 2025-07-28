@@ -21,7 +21,9 @@ class Transaction extends Model
         'transaction_date',
         'volunteer_rate',
         'branch_rate',
-        'transfer_method',
+        'ziswaf_volunteer_rate',
+        'ziswaf_branch_rate',
+        'payment_method_id',
         'proof_image',
         'status',
         'status_reason',
@@ -35,6 +37,8 @@ class Transaction extends Model
         'transaction_date' => 'datetime',
         'volunteer_rate' => 'decimal:2',
         'branch_rate' => 'decimal:2',
+        'ziswaf_volunteer_rate' => 'decimal:2',
+        'ziswaf_branch_rate' => 'decimal:2',
         'validated_at' => 'datetime'
     ];
 
@@ -49,7 +53,7 @@ class Transaction extends Model
     // Accessor untuk transferMethod (camelCase)
     public function getTransferMethodAttribute()
     {
-        return $this->attributes['transfer_method'] ?? null;
+        return $this->paymentMethod ? $this->paymentMethod->name : null;
     }
 
     // Accessor untuk transactionDate (camelCase)
@@ -86,5 +90,10 @@ class Transaction extends Model
     public function validator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'validated_by');
+    }
+
+    public function paymentMethod(): BelongsTo
+    {
+        return $this->belongsTo(PaymentMethod::class);
     }
 }
