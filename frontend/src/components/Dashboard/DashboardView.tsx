@@ -51,6 +51,14 @@ export default function DashboardView() {
   }
 
   const formatCurrency = (amount: number) => {
+    // Handle NaN, null, undefined, or invalid numbers
+    if (amount == null || isNaN(amount) || !isFinite(amount)) {
+      return new Intl.NumberFormat('id-ID', {
+        style: 'currency',
+        currency: 'IDR',
+        minimumFractionDigits: 0
+      }).format(0);
+    }
     return new Intl.NumberFormat('id-ID', {
       style: 'currency',
       currency: 'IDR',
@@ -67,7 +75,10 @@ export default function DashboardView() {
       return date.toLocaleDateString('id-ID', {
         year: 'numeric',
         month: 'short',
-        day: 'numeric'
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'Asia/Jakarta'
       });
     } catch (error) {
       return '-';
@@ -75,20 +86,38 @@ export default function DashboardView() {
   };
 
   // Calculate ZISWAF and QURBAN totals with proper fallback
-  const ziswafTotal = dashboardData.transaction_stats?.ziswaf_amount || 
-    dashboardData.program_stats?.program_performance
+  const ziswafTotal = (() => {
+    const statsAmount = dashboardData.transaction_stats?.ziswaf_amount;
+    if (statsAmount != null && !isNaN(statsAmount) && isFinite(statsAmount)) {
+      return statsAmount;
+    }
+    const programAmount = dashboardData.program_stats?.program_performance
       ?.filter(program => program.program_type === 'ZISWAF')
-      ?.reduce((sum, program) => sum + (program.total_amount || 0), 0) || 0;
+      ?.reduce((sum, program) => {
+        const amount = program.total_amount || 0;
+        return sum + (isNaN(amount) || !isFinite(amount) ? 0 : amount);
+      }, 0) || 0;
+    return isNaN(programAmount) || !isFinite(programAmount) ? 0 : programAmount;
+  })();
     
-  const qurbanTotal = dashboardData.transaction_stats?.qurban_amount || 
-    dashboardData.program_stats?.program_performance
+  const qurbanTotal = (() => {
+    const statsAmount = dashboardData.transaction_stats?.qurban_amount;
+    if (statsAmount != null && !isNaN(statsAmount) && isFinite(statsAmount)) {
+      return statsAmount;
+    }
+    const programAmount = dashboardData.program_stats?.program_performance
       ?.filter(program => program.program_type === 'QURBAN')
-      ?.reduce((sum, program) => sum + (program.total_amount || 0), 0) || 0;
+      ?.reduce((sum, program) => {
+        const amount = program.total_amount || 0;
+        return sum + (isNaN(amount) || !isFinite(amount) ? 0 : amount);
+      }, 0) || 0;
+    return isNaN(programAmount) || !isFinite(programAmount) ? 0 : programAmount;
+  })();
 
   const stats = [
     {
       title: 'Total Donasi Tervalidasi',
-      value: formatCurrency(dashboardData.transaction_stats.total_amount),
+      value: formatCurrency(dashboardData.transaction_stats.total_amount || 0),
       icon: DollarSign,
       color: 'bg-green-500',
       textColor: 'text-green-600'
@@ -166,6 +195,7 @@ export default function DashboardView() {
         onFilterChange={updateFilter}
         isLoading={isLoading}
         dashboardData={dashboardData}
+        userRole={user?.role}
       />
 
       {/* Statistics Cards */}
@@ -212,7 +242,7 @@ export default function DashboardView() {
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="font-bold text-purple-600">{formatCurrency(volunteer.total_amount)}</p>
+                  <p className="font-bold text-purple-600">{formatCurrency(volunteer.total_amount || 0)}</p>
                 </div>
               </div>
             ))}
@@ -234,7 +264,7 @@ export default function DashboardView() {
                   <p className="text-sm text-gray-600">{program.transaction_count} transaksi</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-bold text-blue-600">{formatCurrency(program.total_amount)}</p>
+                  <p className="font-bold text-blue-600">{formatCurrency(program.total_amount || 0)}</p>
                 </div>
               </div>
             ))}
@@ -252,7 +282,7 @@ export default function DashboardView() {
                   <p className="text-sm text-gray-600">{branch.transaction_count} transaksi</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-bold text-green-600">{formatCurrency(branch.total_amount)}</p>
+                  <p className="font-bold text-green-600">{formatCurrency(branch.total_amount || 0)}</p>
                 </div>
               </div>
             ))}
@@ -278,7 +308,7 @@ export default function DashboardView() {
                   <p className="text-sm text-gray-600">{month.transaction_count} transaksi</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-bold text-green-600">{formatCurrency(month.total_amount)}</p>
+                  <p className="font-bold text-green-600">{formatCurrency(month.total_amount || 0)}</p>
                   <div className="flex gap-2 text-xs text-gray-500 mt-1">
                     <span>ZISWAF: {formatCurrency(month.ziswaf_amount || 0)}</span>
                     <span>QURBAN: {formatCurrency(month.qurban_amount || 0)}</span>
@@ -319,7 +349,7 @@ export default function DashboardView() {
                     <td className="py-3 px-4">{transaction.donor_name}</td>
                     <td className="py-3 px-4">{transaction.program_name || '-'}</td>
                     <td className="py-3 px-4 font-medium">
-                      {formatCurrency(transaction.amount)}
+                      {formatCurrency(transaction.amount || 0)}
                     </td>
                     <td className="py-3 px-4">
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -334,7 +364,7 @@ export default function DashboardView() {
                       </span>
                     </td>
                     <td className="py-3 px-4 text-gray-600">
-                      {formatDate(transaction.created_at)}
+                      {formatDate(transaction.transaction_date || transaction.created_at)}
                     </td>
                   </tr>
                 );
@@ -365,10 +395,10 @@ export default function DashboardView() {
               </div>
               <div className="flex items-center justify-between">
                 <div className="font-medium text-green-600">
-                  {formatCurrency(transaction.amount)}
+                  {formatCurrency(transaction.amount || 0)}
                 </div>
                 <div className="text-sm text-gray-500">
-                  {formatDate(transaction.created_at)}
+                  {formatDate(transaction.transaction_date || transaction.created_at)}
                 </div>
               </div>
             </div>

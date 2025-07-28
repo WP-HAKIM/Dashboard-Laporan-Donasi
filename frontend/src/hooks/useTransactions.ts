@@ -5,7 +5,12 @@ import { transactionsAPI } from '../services/api';
 export function useTransactions() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [myTransactions, setMyTransactions] = useState<Transaction[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [myTransactionsStats, setMyTransactionsStats] = useState<{
+    ziswaf_total: number;
+    qurban_total: number;
+    volunteer_regulation: number;
+  } | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchTransactions = async (params?: { 
@@ -23,7 +28,9 @@ export function useTransactions() {
       setError(null);
       const response = await transactionsAPI.getAll(params);
       // API returns paginated data with structure: {data: [...], links: {...}, meta: {...}}
-      setTransactions(response.data || []);
+      // Filter out any null or undefined transactions
+      const validTransactions = (response.data || []).filter(transaction => transaction && typeof transaction === 'object');
+      setTransactions(validTransactions);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to fetch transactions');
       console.error('Error fetching transactions:', err);
@@ -38,7 +45,9 @@ export function useTransactions() {
       setError(null);
       const response = await transactionsAPI.getMyTransactions();
       // API returns paginated data with structure: {data: [...], links: {...}, meta: {...}}
-      setMyTransactions(response.data || []);
+      // Filter out any null or undefined transactions
+      const validTransactions = (response.data || []).filter(transaction => transaction && typeof transaction === 'object');
+      setMyTransactions(validTransactions);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to fetch my transactions');
       console.error('Error fetching my transactions:', err);
@@ -47,9 +56,19 @@ export function useTransactions() {
     }
   };
 
-  useEffect(() => {
-    fetchTransactions();
-  }, []);
+  const fetchMyTransactionsStats = async () => {
+    try {
+      setError(null);
+      const response = await transactionsAPI.getMyTransactionsStats();
+      setMyTransactionsStats(response);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to fetch my transactions stats');
+      console.error('Error fetching my transactions stats:', err);
+    }
+  };
+
+  // Remove auto-fetch to prevent conflicts with MyTransactions
+  // Components should call fetchTransactions or fetchMyTransactions explicitly
 
   const createTransaction = async (data: FormData) => {
     try {
@@ -73,7 +92,7 @@ export function useTransactions() {
       
       setMyTransactions(prev => prev.map(transaction => 
         String(transaction.id) === String(id) ? updatedTransaction : transaction
-      ));
+      ).filter(transaction => transaction && typeof transaction === 'object'));
       
       return updatedTransaction;
     } catch (err: any) {
@@ -133,17 +152,24 @@ export function useTransactions() {
     }
   };
 
+  const clearError = () => {
+    setError(null);
+  };
+
   return {
     transactions,
     myTransactions,
+    myTransactionsStats,
     isLoading,
     error,
     fetchTransactions,
     fetchMyTransactions,
+    fetchMyTransactionsStats,
     createTransaction,
     validateTransaction,
+    deleteTransaction,
     updateTransaction,
     bulkUpdateStatus,
-    deleteTransaction,
+    clearError,
   };
 }

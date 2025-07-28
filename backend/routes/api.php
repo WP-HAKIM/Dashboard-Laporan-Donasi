@@ -51,6 +51,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('transactions', TransactionController::class);
     Route::post('/transactions/{transaction}/validate', [TransactionController::class, 'validate']);
     Route::post('/transactions/bulk-update-status', [TransactionController::class, 'bulkUpdateStatus']);
+    Route::post('/transactions/import', [TransactionController::class, 'import']);
     Route::get('/my-transactions', [TransactionController::class, 'myTransactions']);
     Route::get('/my-transactions-stats', [TransactionController::class, 'myTransactionsStats']);
     Route::get('/pending-transactions', [TransactionController::class, 'pending']);

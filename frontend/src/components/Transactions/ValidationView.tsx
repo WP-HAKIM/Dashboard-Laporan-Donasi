@@ -11,7 +11,7 @@ import Loader from '../Common/Loader';
 import SearchableSelect from '../Common/SearchableSelect';
 
 export default function ValidationView() {
-  const { transactions, isLoading, error, validateTransaction } = useTransactions();
+  const { transactions, isLoading, error, validateTransaction, fetchTransactions } = useTransactions();
   const { branches } = useBranches();
   const { teams } = useTeams();
   const { programs } = usePrograms();
@@ -19,6 +19,11 @@ export default function ValidationView() {
   const { users: volunteers } = useUsers();
   const [localTransactions, setLocalTransactions] = useState<Transaction[]>([]);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  
+  // Fetch transactions on component mount
+  React.useEffect(() => {
+    fetchTransactions();
+  }, []);
   
   // Initialize local transactions when transactions are loaded
   React.useEffect(() => {
@@ -88,6 +93,19 @@ export default function ValidationView() {
     return mainProgram;
   };
 
+  const getProgramNameString = (transaction: Transaction) => {
+    const mainProgram = transaction.program?.name || programs.find(p => p.id === transaction.program_id)?.name || '-';
+    
+    if (transaction.program_type === 'QURBAN') {
+      const ziswafProgram = transaction.ziswaf_program?.name || 
+        (transaction.ziswaf_program_id ? programs.find(p => p.id === transaction.ziswaf_program_id)?.name : null);
+      
+      return `${mainProgram} - ${ziswafProgram || '-'}`;
+    }
+    
+    return mainProgram;
+  };
+
   const getVolunteerName = (transaction: Transaction) => {
     return transaction.volunteer?.name || '-';
   };
@@ -101,7 +119,10 @@ export default function ValidationView() {
       return date.toLocaleDateString('id-ID', {
         year: 'numeric',
         month: 'short',
-        day: 'numeric'
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'Asia/Jakarta'
       });
     } catch (error) {
       return '-';
@@ -359,12 +380,12 @@ export default function ValidationView() {
         getBranchName(transaction),
         getTeamName(transaction),
         getVolunteerName(transaction),
-        getProgramName(transaction),
+        getProgramNameString(transaction),
         transaction.amount?.toString() || ''
       ];
       
       const matchesSearch = searchableFields.some(field => 
-        field.toLowerCase().includes(searchTerm)
+        String(field).toLowerCase().includes(searchTerm)
       );
       
       if (!matchesSearch) return false;
@@ -576,7 +597,7 @@ export default function ValidationView() {
                   </td>
                   <td className="py-4 px-6">{transaction.transferMethod || '-'}</td>
                   <td className="py-4 px-6 text-gray-600">
-                    {formatDate(transaction.created_at || transaction.createdAt)}
+                    {formatDate(transaction.transaction_date || transaction.transactionDate || transaction.created_at || transaction.createdAt)}
                   </td>
                   <td className="py-4 px-6">
                     <button
@@ -669,7 +690,7 @@ export default function ValidationView() {
                 <div>
                   <span className="text-gray-500">Tanggal:</span>
                   <p className="font-medium text-gray-600">
-                    {formatDate(transaction.created_at || transaction.createdAt)}
+                    {formatDate(transaction.transaction_date || transaction.transactionDate || transaction.created_at || transaction.createdAt)}
                   </p>
                 </div>
               </div>

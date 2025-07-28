@@ -446,4 +446,140 @@ class TransactionController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Import transactions from Excel
+     */
+    public function import(Request $request)
+    {
+        $request->validate([
+            'transactions' => 'required|array|max:1000',
+            'transactions.*.donorName' => 'required|string|max:255',
+            'transactions.*.amount' => 'required|numeric|min:0',
+            'transactions.*.paymentMethodId' => 'required|exists:payment_methods,id',
+            'transactions.*.programType' => 'required|in:ZISWAF,QURBAN',
+            'transactions.*.programId' => 'required|exists:programs,id',
+            'transactions.*.branchId' => 'required|exists:branches,id',
+            'transactions.*.teamId' => 'required|exists:teams,id',
+            'transactions.*.volunteerId' => 'required|exists:users,id',
+            'transactions.*.transactionDate' => 'required|date',
+            'transactions.*.status' => 'required|in:pending,valid,double_duta,double_input,not_in_account,other',
+            'transactions.*.qurbanOwnerName' => 'nullable|string|max:255',
+            'transactions.*.qurbanAmount' => 'nullable|numeric|min:0',
+            'transactions.*.statusReason' => 'nullable|string|max:500',
+        ]);
+
+        // Custom validation for QURBAN fields
+        foreach ($request->transactions as $index => $transactionData) {
+            if ($transactionData['programType'] === 'QURBAN') {
+                if (empty($transactionData['qurbanOwnerName']) || !is_string($transactionData['qurbanOwnerName'])) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Data tidak valid',
+                        'errors' => [
+                            "transactions.{$index}.qurbanOwnerName" => ['The transactions.' . $index . '.qurbanOwnerName field is required when program type is QURBAN.']
+                        ]
+                    ], 422);
+                }
+                if (empty($transactionData['qurbanAmount']) || !is_numeric($transactionData['qurbanAmount']) || $transactionData['qurbanAmount'] <= 0) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Data tidak valid',
+                        'errors' => [
+                            "transactions.{$index}.qurbanAmount" => ['The transactions.' . $index . '.qurbanAmount field is required and must be a positive number when program type is QURBAN.']
+                        ]
+                    ], 422);
+                }
+            }
+        }
+
+        $results = [
+            'success' => 0,
+            'errors' => []
+        ];
+
+        foreach ($request->transactions as $index => $transactionData) {
+            try {
+                // Validate volunteer belongs to branch and team
+                $volunteer = \App\Models\User::find($transactionData['volunteerId']);
+                if (!$volunteer || $volunteer->role !== 'volunteer') {
+                    $results['errors'][] = [
+                        'row' => $index + 1,
+                        'message' => 'Volunteer tidak valid'
+                    ];
+                    continue;
+                }
+
+                // Validate program type matches program
+                $program = \App\Models\Program::find($transactionData['programId']);
+                if (!$program) {
+                    $results['errors'][] = [
+                        'row' => $index + 1,
+                        'message' => 'Program tidak ditemukan'
+                    ];
+                    continue;
+                }
+
+                // Create transaction
+                $transaction = new Transaction();
+                $transaction->donor_name = $transactionData['donorName'];
+                $transaction->amount = $transactionData['amount'];
+                $transaction->payment_method_id = $transactionData['paymentMethodId'];
+                $transaction->program_type = $transactionData['programType'];
+                $transaction->program_id = $transactionData['programId'];
+                $transaction->branch_id = $transactionData['branchId'];
+                $transaction->team_id = $transactionData['teamId'];
+                $transaction->volunteer_id = $transactionData['volunteerId'];
+                $transaction->transaction_date = $transactionData['transactionDate'];
+                $transaction->status = $transactionData['status'];
+                $transaction->status_reason = $transactionData['statusReason'] ?? null;
+
+                // Set QURBAN specific fields
+                if ($transactionData['programType'] === 'QURBAN') {
+                    $transaction->qurban_owner_name = $transactionData['qurbanOwnerName'];
+                    $transaction->qurban_amount = $transactionData['qurbanAmount'];
+                } else {
+                    $transaction->ziswaf_program_id = $transactionData['programId'];
+                }
+
+                // Set rates from program
+                if ($program->volunteer_rate !== null) {
+                    if ($transactionData['programType'] === 'ZISWAF') {
+                        $transaction->ziswaf_volunteer_rate = $program->volunteer_rate;
+                    } else {
+                        $transaction->qurban_volunteer_rate = $program->volunteer_rate;
+                    }
+                }
+
+                if ($program->branch_rate !== null) {
+                    if ($transactionData['programType'] === 'ZISWAF') {
+                        $transaction->ziswaf_branch_rate = $program->branch_rate;
+                    } else {
+                        $transaction->qurban_branch_rate = $program->branch_rate;
+                    }
+                }
+
+                $transaction->save();
+                $results['success']++;
+
+            } catch (\Exception $e) {
+                \Log::error('Error importing transaction: ' . $e->getMessage(), [
+                    'transaction_data' => $transactionData,
+                    'index' => $index,
+                    'stack_trace' => $e->getTraceAsString()
+                ]);
+                
+                $results['errors'][] = [
+                    'row' => $index + 1,
+                    'message' => 'Error: ' . $e->getMessage()
+                ];
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => "Import selesai. {$results['success']} transaksi berhasil diimport",
+            'results' => $results
+        ]);
+    }
 }

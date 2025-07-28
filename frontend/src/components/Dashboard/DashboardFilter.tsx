@@ -9,6 +9,7 @@ interface DashboardFilterProps {
   onFilterChange: (filter: DashboardFilterType) => void;
   isLoading?: boolean;
   dashboardData?: DashboardData | null;
+  userRole?: string;
 }
 
 const filterOptions = [
@@ -44,7 +45,7 @@ interface Program {
   type: string;
 }
 
-export default function DashboardFilter({ currentFilter, onFilterChange, isLoading, dashboardData }: DashboardFilterProps) {
+export default function DashboardFilter({ currentFilter, onFilterChange, isLoading, dashboardData, userRole }: DashboardFilterProps) {
   const [isDateRangeModalOpen, setIsDateRangeModalOpen] = useState(false);
   const [tempStartDate, setTempStartDate] = useState(currentFilter.start_date || '');
   const [tempEndDate, setTempEndDate] = useState(currentFilter.end_date || '');
@@ -343,8 +344,20 @@ export default function DashboardFilter({ currentFilter, onFilterChange, isLoadi
 
   const getCurrentFilterLabel = () => {
     if (currentFilter.filter_type === 'date_range' && currentFilter.start_date && currentFilter.end_date) {
-      const startDate = new Date(currentFilter.start_date).toLocaleDateString('id-ID');
-      const endDate = new Date(currentFilter.end_date).toLocaleDateString('id-ID');
+      const startDate = new Date(currentFilter.start_date).toLocaleDateString('id-ID', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+      const endDate = new Date(currentFilter.end_date).toLocaleDateString('id-ID', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
       return `${startDate} - ${endDate}`;
     }
     return filterOptions.find(option => option.value === currentFilter.filter_type)?.label || 'Filter';
@@ -378,107 +391,107 @@ export default function DashboardFilter({ currentFilter, onFilterChange, isLoadi
         </div>
         
         {/* Advanced Filters */}
-        <div className="mt-4 pt-4 border-t border-gray-200">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Branch Filter */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Cabang</label>
-              <SearchableSelect
-                options={[
-                  { value: '', label: 'Semua Cabang' },
-                  ...branches.map(branch => ({
-                    value: String(branch.id),
-                    label: branch.name
-                  }))
-                ]}
-                value={selectedBranch}
-                onChange={(value) => {
-                  setSelectedBranch(value);
-                  // Reset dependent filters when branch changes
-                  if (value !== selectedBranch) {
-                    setSelectedTeam('');
-                    setSelectedVolunteer('');
-                  }
-                }}
-                placeholder="Pilih Cabang..."
-                className="text-sm"
-              />
-            </div>
-            
-            {/* Team Filter */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Tim</label>
-              <SearchableSelect
-                options={[
-                  { value: '', label: 'Semua Tim' },
-                  ...filteredTeams.map(team => ({
-                    value: String(team.id),
-                    label: team.name
-                  }))
-                ]}
-                value={selectedTeam}
-                onChange={(value) => {
-                  setSelectedTeam(value);
-                  // Reset volunteer when team changes
-                  if (value !== selectedTeam) {
-                    setSelectedVolunteer('');
-                  }
-                }}
-                placeholder="Pilih Tim..."
-                className="text-sm"
-              />
-            </div>
-            
-            {/* Volunteer Filter */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Relawan</label>
-              <SearchableSelect
-                options={[
-                  { value: '', label: 'Semua Relawan' },
-                  // Use filtered volunteers based on branch/team selection
-                  ...filteredVolunteers.map(volunteer => ({
-                    value: String(volunteer.id),
-                    label: volunteer.name
-                  })),
-                  // Also include volunteer names from dashboard data that might not be in the users list
-                  ...allVolunteerNames.filter(name => 
-                    !filteredVolunteers.some(volunteer => volunteer.name === name.value)
-                  ).map(name => ({
-                    value: `name:${name.value}`, // Prefix to distinguish from ID
-                    label: name.value
-                  }))
-                ]}
-                value={selectedVolunteer}
-                onChange={(value) => setSelectedVolunteer(value)}
-                placeholder="Pilih Relawan..."
-                className="text-sm"
-              />
-            </div>
-            
-            {/* Program Filter */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Program</label>
-              <SearchableSelect
-                options={[
-                  { value: '', label: 'Semua Program' },
-                  ...programs.map(program => ({
-                    value: program.name,
-                    label: program.name
-                  }))
-                ]}
-                value={selectedProgramType}
-                onChange={(value) => setSelectedProgramType(value)}
-                placeholder="Pilih Program..."
-                className="text-sm"
-              />
-            </div>
-            
-
-          </div>
-        </div>
+        {userRole !== 'volunteer' && (
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Branch Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Cabang</label>
+                <SearchableSelect
+                  options={[
+                    { value: '', label: 'Semua Cabang' },
+                    ...branches.map(branch => ({
+                      value: String(branch.id),
+                      label: branch.name
+                    }))
+                  ]}
+                  value={selectedBranch}
+                  onChange={(value) => {
+                    setSelectedBranch(value);
+                    // Reset dependent filters when branch changes
+                    if (value !== selectedBranch) {
+                      setSelectedTeam('');
+                      setSelectedVolunteer('');
+                    }
+                  }}
+                  placeholder="Pilih Cabang..."
+                  className="text-sm"
+                />
+              </div>
+              
+              {/* Team Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tim</label>
+                <SearchableSelect
+                  options={[
+                    { value: '', label: 'Semua Tim' },
+                    ...filteredTeams.map(team => ({
+                      value: String(team.id),
+                      label: team.name
+                    }))
+                  ]}
+                  value={selectedTeam}
+                  onChange={(value) => {
+                    setSelectedTeam(value);
+                    // Reset volunteer when team changes
+                    if (value !== selectedTeam) {
+                      setSelectedVolunteer('');
+                    }
+                  }}
+                  placeholder="Pilih Tim..."
+                  className="text-sm"
+                />
+              </div>
+              
+              {/* Volunteer Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Relawan</label>
+                <SearchableSelect
+                  options={[
+                    { value: '', label: 'Semua Relawan' },
+                    // Use filtered volunteers based on branch/team selection
+                    ...filteredVolunteers.map(volunteer => ({
+                      value: String(volunteer.id),
+                      label: volunteer.name
+                    })),
+                    // Also include volunteer names from dashboard data that might not be in the users list
+                    ...allVolunteerNames.filter(name => 
+                      !filteredVolunteers.some(volunteer => volunteer.name === name.value)
+                    ).map(name => ({
+                      value: `name:${name.value}`, // Prefix to distinguish from ID
+                      label: name.value
+                    }))
+                  ]}
+                  value={selectedVolunteer}
+                  onChange={(value) => setSelectedVolunteer(value)}
+                  placeholder="Pilih Relawan..."
+                  className="text-sm"
+                />
+              </div>
+              
+              {/* Program Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Program</label>
+                <SearchableSelect
+                  options={[
+                    { value: '', label: 'Semua Program' },
+                    ...programs.map(program => ({
+                      value: program.name,
+                      label: program.name
+                    }))
+                  ]}
+                  value={selectedProgramType}
+                  onChange={(value) => setSelectedProgramType(value)}
+                  placeholder="Pilih Program..."
+                  className="text-sm"
+                />
+              </div>
+             </div>
+           </div>
+         )}
         
         {/* Active Filters Display */}
-        {(currentFilter.filter_type !== 'all' || currentFilter.branch_id || currentFilter.team_id || currentFilter.volunteer_id || currentFilter.program_name) && (
+        {(currentFilter.filter_type !== 'all' || (userRole !== 'volunteer' && (currentFilter.branch_id || currentFilter.team_id || currentFilter.volunteer_id || currentFilter.program_name))) && (
           <div className="mt-4 pt-4 border-t border-gray-200">
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <Calendar className="w-4 h-4 text-gray-500" />
@@ -491,29 +504,29 @@ export default function DashboardFilter({ currentFilter, onFilterChange, isLoadi
                 </span>
               )}
               
-              {/* Branch Filter */}
-              {currentFilter.branch_id && (
+              {/* Branch Filter - Hidden for volunteers */}
+              {userRole !== 'volunteer' && currentFilter.branch_id && (
                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
                   Cabang: {branches.find(b => String(b.id) === currentFilter.branch_id)?.name || currentFilter.branch_id}
                 </span>
               )}
               
-              {/* Team Filter */}
-              {currentFilter.team_id && (
+              {/* Team Filter - Hidden for volunteers */}
+              {userRole !== 'volunteer' && currentFilter.team_id && (
                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
                   Tim: {teams.find(t => String(t.id) === currentFilter.team_id)?.name || currentFilter.team_id}
                 </span>
               )}
               
-              {/* Volunteer Filter */}
-              {currentFilter.volunteer_id && (
+              {/* Volunteer Filter - Hidden for volunteers */}
+              {userRole !== 'volunteer' && currentFilter.volunteer_id && (
                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
                   Relawan: {currentFilter.volunteer_id}
                 </span>
               )}
               
-              {/* Program Filter */}
-              {currentFilter.program_name && (
+              {/* Program Filter - Hidden for volunteers */}
+              {userRole !== 'volunteer' && currentFilter.program_name && (
                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-pink-100 text-pink-800">
                   Program: {currentFilter.program_name}
                 </span>

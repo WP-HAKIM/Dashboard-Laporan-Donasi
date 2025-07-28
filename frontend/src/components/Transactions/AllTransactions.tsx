@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Filter, Download, Edit, Trash2, Eye, Plus, X, Calendar } from 'lucide-react';
+import { Search, Filter, Download, Upload, FileDown, Edit, Trash2, Eye, Plus, X, Calendar } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Transaction } from '../../types';
 import { useAuth } from '../../hooks/useAuth';
@@ -9,8 +9,10 @@ import { useTeams } from '../../hooks/useTeams';
 import { usePrograms } from '../../hooks/usePrograms';
 import { useUsers } from '../../hooks/useUsers';
 import { usePaymentMethods } from '../../hooks/usePaymentMethods';
+import { transactionsAPI } from '../../services/api';
 import Loader from '../Common/Loader';
 import SearchableSelect from '../Common/SearchableSelect';
+import { formatDateForInput, convertInputToISO } from '../../utils/dateUtils';
 
 export default function AllTransactions() {
   const { user } = useAuth();
@@ -34,6 +36,7 @@ export default function AllTransactions() {
   });
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
+  const [isMobile, setIsMobile] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -46,7 +49,7 @@ export default function AllTransactions() {
   const [formData, setFormData] = useState({
     donorName: '',
     amount: 0,
-    transferMethod: '',
+    paymentMethodId: '',
     programType: 'ZISWAF' as 'ZISWAF' | 'QURBAN',
     programId: '',
     qurbanOwnerName: '',
@@ -56,12 +59,38 @@ export default function AllTransactions() {
     teamId: '',
     volunteerId: '',
     transactionDate: '',
-    status: 'pending' as Transaction['status']
+    status: 'pending' as Transaction['status'],
+    statusReason: '',
+    proofImage: null as File | null
   });
   const [selectedTransactions, setSelectedTransactions] = useState<string[]>([]);
   const [showBulkActions, setShowBulkActions] = useState(false);
   const [bulkAction, setBulkAction] = useState('');
   const [isBulkProcessing, setIsBulkProcessing] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importProgress, setImportProgress] = useState(0);
+  const [importResults, setImportResults] = useState<{
+    success: number;
+    errors: Array<{ row: number; message: string }>;
+  } | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+
+  // Detect mobile screen size
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 640);
+    };
+    
+    // Check on mount
+    checkMobile();
+    
+    // Add event listener for resize
+    window.addEventListener('resize', checkMobile);
+    
+    // Cleanup
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Reset selected transactions when filters change
   useEffect(() => {
@@ -183,13 +212,13 @@ export default function AllTransactions() {
         getBranchName(transaction),
         getTeamName(transaction),
         getVolunteerName(transaction),
-        getProgramName(transaction),
+        getProgramNameString(transaction),
         transaction.amount?.toString() || '',
         transaction.id?.toString() || ''
       ];
       
       const matchesSearch = searchableFields.some(field => 
-        field.toLowerCase().includes(searchTermLower)
+        String(field).toLowerCase().includes(searchTermLower)
       );
       
       if (!matchesSearch) return false;
@@ -229,26 +258,16 @@ export default function AllTransactions() {
       availableVolunteers: volunteers.length
     });
     
-    // Format transaction date for date input (YYYY-MM-DD)
-    let formattedDate = '';
-    if (transaction.transaction_date) {
-      // If transaction_date exists, use it and format to YYYY-MM-DD
-      formattedDate = new Date(transaction.transaction_date).toISOString().split('T')[0];
-    } else if (transaction.transactionDate) {
-      // If camelCase transactionDate exists, use it
-      formattedDate = new Date(transaction.transactionDate).toISOString().split('T')[0];
-    } else if (transaction.created_at) {
-      // Fallback to created_at
-      formattedDate = new Date(transaction.created_at).toISOString().split('T')[0];
-    } else if (transaction.createdAt) {
-      // Fallback to camelCase createdAt
-      formattedDate = new Date(transaction.createdAt).toISOString().split('T')[0];
-    }
+    // Format transaction date for datetime-local input with Indonesian timezone
+    const transactionDate = transaction.transaction_date || transaction.transactionDate || transaction.created_at || transaction.createdAt;
+    const formattedDate = formatDateForInput(transactionDate);
+    
+    const paymentMethodId = String(transaction.payment_method_id || transaction.paymentMethodId || '');
     
     setFormData({
       donorName: transaction.donorName || transaction.donor_name || '',
       amount: transaction.amount || 0,
-      transferMethod: transaction.transferMethod || transaction.transfer_method || '',
+      paymentMethodId: paymentMethodId,
       programType: (transaction.program?.type || 'ZISWAF') as 'ZISWAF' | 'QURBAN',
       programId: programId,
       qurbanOwnerName: transaction.qurban_owner_name || '',
@@ -258,7 +277,9 @@ export default function AllTransactions() {
       teamId: teamId,
       volunteerId: volunteerId,
       transactionDate: formattedDate,
-      status: transaction.status || 'pending'
+      status: transaction.status || 'pending',
+      statusReason: transaction.status_reason || transaction.statusReason || '',
+      proofImage: null
     });
     
     setIsModalOpen(true);
@@ -421,8 +442,20 @@ export default function AllTransactions() {
 
   const getCurrentDateFilterLabel = () => {
     if (filters.datePreset === 'custom' && filters.dateFrom && filters.dateTo) {
-      const startDate = new Date(filters.dateFrom).toLocaleDateString('id-ID');
-      const endDate = new Date(filters.dateTo).toLocaleDateString('id-ID');
+      const startDate = new Date(filters.dateFrom).toLocaleDateString('id-ID', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+      const endDate = new Date(filters.dateTo).toLocaleDateString('id-ID', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
       return `${startDate} - ${endDate}`;
     }
     const presetLabels = {
@@ -475,12 +508,15 @@ export default function AllTransactions() {
       alert('Nama donatur harus diisi');
       return;
     }
-    if (!formData.amount || formData.amount <= 0) {
-      alert('Nominal harus lebih dari 0');
-      return;
+    // Validate amount only for ZISWAF or QURBAN with ZISWAF program
+    if (formData.programType === 'ZISWAF' || (formData.programType === 'QURBAN' && formData.ziswafProgramId)) {
+      if (!formData.amount || formData.amount <= 0) {
+        alert('Nominal donasi harus lebih dari 0');
+        return;
+      }
     }
-    if (!formData.transferMethod.trim()) {
-      alert('Metode transfer harus diisi');
+    if (!formData.paymentMethodId) {
+      alert('Metode pembayaran harus dipilih');
       return;
     }
     if (!formData.programId) {
@@ -508,15 +544,21 @@ export default function AllTransactions() {
       
       const updateData: any = {
         donor_name: formData.donorName,
-        transfer_method: formData.transferMethod,
+        payment_method_id: formData.paymentMethodId,
         program_type: formData.programType,
         program_id: formData.programId,
         branch_id: formData.branchId,
         team_id: formData.teamId,
         volunteer_id: formData.volunteerId,
-        transaction_date: formData.transactionDate,
-        status: formData.status
+        transaction_date: convertInputToISO(formData.transactionDate),
+        status: formData.status,
+        status_reason: formData.statusReason
       };
+      
+      // Add amount only if it's required (ZISWAF or QURBAN with ZISWAF program)
+      if (formData.programType === 'ZISWAF' || (formData.programType === 'QURBAN' && formData.ziswafProgramId)) {
+        updateData.amount = formData.amount;
+      }
       
       // Add qurban fields if program type is QURBAN
       if (formData.programType === 'QURBAN') {
@@ -533,10 +575,7 @@ export default function AllTransactions() {
         updateData.ziswaf_program_id = formData.ziswafProgramId;
       }
       
-      // Add amount only if it's filled or required (ZISWAF or QURBAN with ziswaf program)
-      if (formData.amount || formData.programType === 'ZISWAF' || formData.ziswafProgramId) {
-        updateData.amount = formData.amount;
-      }
+
       
       const updatedTransaction = await updateTransaction(String(editingTransaction.id), updateData);
       setIsModalOpen(false);
@@ -571,7 +610,7 @@ export default function AllTransactions() {
     setFormData({
       donorName: '',
       amount: 0,
-      transferMethod: '',
+      paymentMethodId: '',
       programType: 'ZISWAF' as 'ZISWAF' | 'QURBAN',
       programId: '',
       qurbanOwnerName: '',
@@ -581,7 +620,9 @@ export default function AllTransactions() {
       teamId: '',
       volunteerId: '',
       transactionDate: '',
-      status: 'pending'
+      status: 'pending',
+      statusReason: '',
+      proofImage: null
     });
   };
 
@@ -638,6 +679,22 @@ export default function AllTransactions() {
     });
     
     return '-';
+  };
+
+  // Function to get program name as string for search purposes
+  const getProgramNameString = (transaction: Transaction) => {
+    if (!transaction) return '';
+    
+    const mainProgram = transaction.program?.name || programs.find(p => p.id === transaction.program_id)?.name || '';
+    
+    if (transaction.program_type === 'QURBAN') {
+      const ziswafProgram = transaction.ziswaf_program?.name || 
+        (transaction.ziswaf_program_id ? programs.find(p => p.id === transaction.ziswaf_program_id)?.name : '');
+      
+      return `${mainProgram} ${ziswafProgram}`.trim();
+    }
+    
+    return mainProgram;
   };
 
   const getProgramName = (transaction: Transaction) => {
@@ -712,7 +769,10 @@ export default function AllTransactions() {
       return date.toLocaleDateString('id-ID', {
         year: 'numeric',
         month: 'short',
-        day: 'numeric'
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'Asia/Jakarta'
       });
     } catch (error) {
       return '-';
@@ -727,10 +787,7 @@ export default function AllTransactions() {
     }).format(amount);
   };
 
-  const formatCurrencyInput = (value: string) => {
-    const number = value.replace(/\D/g, '');
-    return new Intl.NumberFormat('id-ID').format(parseInt(number) || 0);
-  };
+
 
   const getStatusLabel = (status: string) => {
     const labels = {
@@ -831,6 +888,39 @@ export default function AllTransactions() {
         const programName = getProgramName(transaction);
         const isQurban = programName.toLowerCase().includes('qurban');
         
+        // Calculate regulation amounts
+        let volunteerCommission = 0;
+        let branchCommission = 0;
+        
+        if (transaction.program_type === 'ZISWAF') {
+          const volunteerRate = transaction.ziswaf_volunteer_rate || transaction.volunteer_rate || 0;
+          const branchRate = transaction.ziswaf_branch_rate || transaction.branch_rate || 0;
+          const amount = Number(transaction.amount) || 0;
+          volunteerCommission = amount * volunteerRate / 100;
+          branchCommission = amount * branchRate / 100;
+        } else if (transaction.program_type === 'QURBAN') {
+          if (transaction.ziswaf_program_id) {
+            // QURBAN dengan komponen ZISWAF
+            const qurbanVolunteerRate = transaction.volunteer_rate || 0;
+            const ziswafVolunteerRate = transaction.ziswaf_volunteer_rate || 0;
+            const qurbanBranchRate = transaction.branch_rate || 0;
+            const ziswafBranchRate = transaction.ziswaf_branch_rate || 0;
+            
+            const qurbanAmount = Number(transaction.qurban_amount) || 0;
+            const ziswafAmount = Number(transaction.amount) || 0;
+            
+            volunteerCommission = (qurbanAmount * qurbanVolunteerRate / 100) + (ziswafAmount * ziswafVolunteerRate / 100);
+            branchCommission = (qurbanAmount * qurbanBranchRate / 100) + (ziswafAmount * ziswafBranchRate / 100);
+          } else {
+            // QURBAN tanpa komponen ZISWAF
+            const volunteerRate = transaction.volunteer_rate || 0;
+            const branchRate = transaction.branch_rate || 0;
+            const amount = Number(transaction.amount) || 0;
+            volunteerCommission = amount * volunteerRate / 100;
+            branchCommission = amount * branchRate / 100;
+          }
+        }
+        
         return {
           'No': index + 1,
           'ID Transaksi': transaction.id,
@@ -840,6 +930,8 @@ export default function AllTransactions() {
           'Relawan': getVolunteerName(transaction),
           'Program': programName,
           'Jenis Program': isQurban ? 'QURBAN' : 'ZISWAF',
+          'Regulasi Relawan': volunteerCommission,
+          'Regulasi Cabang': branchCommission,
           'Nominal': transaction.amount || 0,
           'Nominal Qurban': isQurban && transaction.qurban_amount ? transaction.qurban_amount : '-',
           'Total Nominal': isQurban && transaction.qurban_amount ? 
@@ -848,7 +940,7 @@ export default function AllTransactions() {
           'Bank': transaction.transferMethod || transaction.transfer_method || '-',
           'Status': getStatusLabel(transaction.status),
           'Alasan': transaction.statusReason || transaction.status_reason || '-',
-          'Tanggal Transaksi': formatDate(transaction.created_at || transaction.createdAt),
+          'Tanggal Transaksi': formatDate(transaction.transaction_date || transaction.transactionDate || transaction.created_at || transaction.createdAt),
           'Tanggal Update': formatDate(transaction.updated_at || transaction.updatedAt)
         };
       });
@@ -867,6 +959,8 @@ export default function AllTransactions() {
         { wch: 20 },  // Relawan
         { wch: 25 },  // Program
         { wch: 12 },  // Jenis Program
+        { wch: 15 },  // Regulasi Relawan
+        { wch: 15 },  // Regulasi Cabang
         { wch: 15 },  // Nominal
         { wch: 15 },  // Nominal Qurban
         { wch: 15 },  // Total Nominal
@@ -898,6 +992,443 @@ export default function AllTransactions() {
     }
   };
 
+  // Download Excel Template
+  const downloadTemplate = () => {
+    try {
+      // Create workbook
+      const wb = XLSX.utils.book_new();
+      
+      // Template headers
+      const headers = [
+        'Nama Donatur',
+        'Nominal',
+        'Metode Pembayaran',
+        'Jenis Program',
+        'Program',
+        'Nama Pemilik Qurban',
+        'Nominal Qurban',
+        'Cabang',
+        'Tim',
+        'Relawan',
+        'Tanggal Transaksi',
+        'Status',
+        'Alasan Status'
+      ];
+      
+      // Sample data with instructions
+      const sampleData = [
+        [
+          'Contoh: Ahmad Budi',
+          '500000',
+          'Transfer Bank',
+          'ZISWAF atau QURBAN',
+          'Zakat Mal',
+          'Kosongkan jika bukan QURBAN',
+          'Kosongkan jika bukan QURBAN',
+          'Cabang Jakarta',
+          'Tim Alpha',
+          'Nama Relawan',
+          '25/01/2025 14:30:00',
+          'pending',
+          'Kosongkan jika status pending'
+        ]
+      ];
+      
+      // Create worksheet data
+      const wsData = [headers, ...sampleData];
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      
+      // Set column widths
+      const colWidths = [
+        { wch: 20 }, // Nama Donatur
+        { wch: 15 }, // Nominal
+        { wch: 18 }, // Metode Pembayaran
+        { wch: 15 }, // Jenis Program
+        { wch: 20 }, // Program
+        { wch: 20 }, // Nama Pemilik Qurban
+        { wch: 15 }, // Nominal Qurban
+        { wch: 15 }, // Cabang
+        { wch: 15 }, // Tim
+        { wch: 20 }, // Relawan
+        { wch: 20 }, // Tanggal Transaksi
+        { wch: 12 }, // Status
+        { wch: 25 }  // Alasan Status
+      ];
+      ws['!cols'] = colWidths;
+      
+      // Add worksheet to workbook
+      XLSX.utils.book_append_sheet(wb, ws, 'Template Import');
+      
+      // Create instructions sheet
+      const instructionsData = [
+        ['PETUNJUK PENGGUNAAN TEMPLATE IMPORT TRANSAKSI'],
+        [''],
+        ['1. FORMAT TANGGAL:'],
+        ['   - Gunakan format: DD/MM/YYYY HH:MM:SS'],
+        ['   - Contoh: 25/01/2025 14:30:00'],
+        ['   - Atau format: DD/MM/YYYY'],
+        ['   - Contoh: 25/01/2025'],
+        [''],
+        ['2. JENIS PROGRAM:'],
+        ['   - ZISWAF: untuk program zakat, infaq, sedekah, wakaf'],
+        ['   - QURBAN: untuk program qurban'],
+        [''],
+        ['3. KOLOM KHUSUS QURBAN:'],
+        ['   - Nama Pemilik Qurban: wajib diisi jika Jenis Program = QURBAN'],
+        ['   - Nominal Qurban: wajib diisi jika Jenis Program = QURBAN'],
+        ['   - Kosongkan kedua kolom ini jika Jenis Program = ZISWAF'],
+        [''],
+        ['4. STATUS TRANSAKSI:'],
+        ['   - pending: menunggu validasi'],
+        ['   - valid: transaksi valid'],
+        ['   - double_duta: duplikasi dari duta'],
+        ['   - double_input: duplikasi input'],
+        ['   - not_in_account: tidak ada di rekening'],
+        ['   - other: lainnya'],
+        [''],
+        ['5. METODE PEMBAYARAN:'],
+        ['   - Sesuaikan dengan metode pembayaran yang tersedia'],
+        ['   - Contoh: Transfer Bank, Cash, QRIS, dll'],
+        [''],
+        ['6. CABANG, TIM, RELAWAN:'],
+        ['   - Pastikan nama sesuai dengan data yang ada di sistem'],
+        ['   - Jika tidak ditemukan, akan dibuat otomatis'],
+        [''],
+        ['7. VALIDASI:'],
+        ['   - Semua kolom wajib diisi kecuali yang disebutkan opsional'],
+        ['   - Nominal harus berupa angka'],
+        ['   - Format tanggal harus sesuai'],
+        [''],
+        ['8. TIPS:'],
+        ['   - Hapus baris contoh sebelum import'],
+        ['   - Pastikan tidak ada baris kosong di tengah data'],
+        ['   - Maksimal 1000 baris per import']
+      ];
+      
+      const instructionsWs = XLSX.utils.aoa_to_sheet(instructionsData);
+      instructionsWs['!cols'] = [{ wch: 80 }];
+      XLSX.utils.book_append_sheet(wb, instructionsWs, 'Petunjuk');
+      
+      // Generate filename
+      const filename = 'Template_Import_Transaksi.xlsx';
+      
+      // Save file
+      XLSX.writeFile(wb, filename);
+      
+      alert('Template berhasil didownload!');
+    } catch (error) {
+      console.error('Error downloading template:', error);
+      alert('Terjadi kesalahan saat mendownload template');
+    }
+  };
+
+  // Handle file import
+  const handleFileImport = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      setImportFile(file);
+    }
+  };
+
+  // Process Excel import
+  const processImport = async () => {
+    if (!importFile) {
+      alert('Pilih file Excel terlebih dahulu');
+      return;
+    }
+
+    setIsImporting(true);
+    setImportProgress(0);
+    setImportResults(null);
+
+    try {
+      const data = await importFile.arrayBuffer();
+      const workbook = XLSX.read(data, { type: 'array' });
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+      // Skip header row
+      const rows = jsonData.slice(1) as any[][];
+      
+      if (rows.length === 0) {
+        alert('File Excel kosong atau tidak ada data');
+        setIsImporting(false);
+        return;
+      }
+
+      if (rows.length > 1000) {
+        alert('Maksimal 1000 baris per import');
+        setIsImporting(false);
+        return;
+      }
+
+      const results = {
+        success: 0,
+        errors: [] as Array<{ row: number; message: string }>
+      };
+
+      const validTransactions: any[] = [];
+
+      // Validate each row first
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const rowNumber = i + 2; // +2 because we skip header and array is 0-indexed
+        
+        setImportProgress(Math.round(((i + 1) / rows.length) * 100));
+
+        try {
+          // Validate required fields
+          if (!row[0] || !row[1] || !row[2] || !row[3] || !row[4] || !row[7] || !row[8] || !row[9] || !row[10]) {
+            results.errors.push({
+              row: rowNumber,
+              message: 'Kolom wajib tidak boleh kosong'
+            });
+            continue;
+          }
+
+          // Validate program type
+          const programType = String(row[3]).toUpperCase();
+          if (programType !== 'ZISWAF' && programType !== 'QURBAN') {
+            results.errors.push({
+              row: rowNumber,
+              message: 'Jenis Program harus ZISWAF atau QURBAN'
+            });
+            continue;
+          }
+
+          // Validate QURBAN specific fields
+          if (programType === 'QURBAN') {
+            // Validate qurban owner name
+            const qurbanOwnerName = String(row[5] || '').trim();
+            if (!qurbanOwnerName) {
+              results.errors.push({
+                row: rowNumber,
+                message: 'Nama Pemilik Qurban wajib diisi untuk program QURBAN'
+              });
+              continue;
+            }
+            
+            // Validate qurban amount exists
+            if (!row[6]) {
+              results.errors.push({
+                row: rowNumber,
+                message: 'Nominal Qurban wajib diisi untuk program QURBAN'
+              });
+              continue;
+            }
+          }
+
+          // Validate amount
+          const amount = Number(row[1]);
+          if (isNaN(amount) || amount <= 0) {
+            results.errors.push({
+              row: rowNumber,
+              message: 'Nominal harus berupa angka positif'
+            });
+            continue;
+          }
+
+          // Validate qurban amount if QURBAN
+          let qurbanAmount = 0;
+          if (programType === 'QURBAN') {
+            qurbanAmount = Number(row[6]);
+            if (isNaN(qurbanAmount) || qurbanAmount <= 0) {
+              results.errors.push({
+                row: rowNumber,
+                message: 'Nominal Qurban harus berupa angka positif'
+              });
+              continue;
+            }
+          }
+
+          // Parse transaction date
+          let transactionDate = new Date();
+          if (row[10]) {
+            const dateStr = String(row[10]);
+            // Try different date formats
+            const dateFormats = [
+              /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})$/, // DD/MM/YYYY HH:MM:SS
+              /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})$/, // DD/MM/YYYY HH:MM
+              /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/ // DD/MM/YYYY
+            ];
+            
+            let dateValid = false;
+            for (const format of dateFormats) {
+              const match = dateStr.match(format);
+              if (match) {
+                const day = parseInt(match[1]);
+                const month = parseInt(match[2]) - 1; // Month is 0-indexed
+                const year = parseInt(match[3]);
+                const hour = match[4] ? parseInt(match[4]) : 0;
+                const minute = match[5] ? parseInt(match[5]) : 0;
+                const second = match[6] ? parseInt(match[6]) : 0;
+                
+                transactionDate = new Date(year, month, day, hour, minute, second);
+                if (!isNaN(transactionDate.getTime())) {
+                  dateValid = true;
+                  break;
+                }
+              }
+            }
+            
+            if (!dateValid) {
+              results.errors.push({
+                row: rowNumber,
+                message: 'Format tanggal tidak valid. Gunakan DD/MM/YYYY atau DD/MM/YYYY HH:MM:SS'
+              });
+              continue;
+            }
+          }
+
+          // Find or create branch
+          let branch = branches.find(b => b.name.toLowerCase() === String(row[7]).toLowerCase());
+          if (!branch) {
+            // In real implementation, you might want to create the branch
+            results.errors.push({
+              row: rowNumber,
+              message: `Cabang '${row[7]}' tidak ditemukan`
+            });
+            continue;
+          }
+
+          // Find or create team
+          let team = teams.find(t => t.name.toLowerCase() === String(row[8]).toLowerCase());
+          if (!team) {
+            results.errors.push({
+              row: rowNumber,
+              message: `Tim '${row[8]}' tidak ditemukan`
+            });
+            continue;
+          }
+
+          // Find volunteer
+          let volunteer = volunteers.find(v => v.name.toLowerCase() === String(row[9]).toLowerCase());
+          if (!volunteer) {
+            results.errors.push({
+              row: rowNumber,
+              message: `Relawan '${row[9]}' tidak ditemukan`
+            });
+            continue;
+          }
+
+          // Find payment method
+          let paymentMethod = paymentMethods.find(pm => pm.name.toLowerCase() === String(row[2]).toLowerCase());
+          if (!paymentMethod) {
+            results.errors.push({
+              row: rowNumber,
+              message: `Metode pembayaran '${row[2]}' tidak ditemukan`
+            });
+            continue;
+          }
+
+          // Find program
+          let program = programs.find(p => p.name.toLowerCase() === String(row[4]).toLowerCase());
+          if (!program) {
+            results.errors.push({
+              row: rowNumber,
+              message: `Program '${row[4]}' tidak ditemukan`
+            });
+            continue;
+          }
+
+          // Validate status
+          const validStatuses = ['pending', 'valid', 'double_duta', 'double_input', 'not_in_account', 'other'];
+          const status = row[11] ? String(row[11]).toLowerCase() : 'pending';
+          if (!validStatuses.includes(status)) {
+            results.errors.push({
+              row: rowNumber,
+              message: 'Status tidak valid'
+            });
+            continue;
+          }
+
+          // Create transaction data
+          const qurbanOwnerName = programType === 'QURBAN' ? String(row[5] || '').trim() : '';
+          
+          const transactionData = {
+            donorName: String(row[0] || '').trim(),
+            amount: amount,
+            paymentMethodId: paymentMethod.id,
+            programType: programType as 'ZISWAF' | 'QURBAN',
+            programId: program.id,
+            qurbanOwnerName: qurbanOwnerName,
+            qurbanAmount: programType === 'QURBAN' ? qurbanAmount : 0,
+            ziswafProgramId: programType === 'ZISWAF' ? program.id : '',
+            branchId: branch.id,
+            teamId: team.id,
+            volunteerId: volunteer.id,
+            transactionDate: transactionDate.toISOString(),
+            status: status as Transaction['status'],
+            statusReason: row[12] ? String(row[12] || '').trim() : ''
+          };
+
+          // Add to valid transactions
+          validTransactions.push(transactionData);
+        } catch (error) {
+          results.errors.push({
+            row: rowNumber,
+            message: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+          });
+        }
+      }
+
+      // Send valid transactions to API if any
+      if (validTransactions.length > 0) {
+        try {
+          const apiResult = await transactionsAPI.import(validTransactions);
+          
+          if (apiResult.success) {
+            results.success = apiResult.results.success;
+            // Merge API errors with validation errors
+            if (apiResult.results.errors && apiResult.results.errors.length > 0) {
+              results.errors.push(...apiResult.results.errors);
+            }
+          } else {
+            // If API fails, mark all valid transactions as errors
+            validTransactions.forEach((_, index) => {
+              results.errors.push({
+                row: index + 1,
+                message: apiResult.message || 'Gagal menyimpan ke database'
+              });
+            });
+          }
+        } catch (error: any) {
+          console.error('API Error:', error);
+          // If API fails, mark all valid transactions as errors
+          validTransactions.forEach((_, index) => {
+            results.errors.push({
+              row: index + 1,
+              message: error.response?.data?.message || 'Gagal menghubungi server'
+            });
+          });
+        }
+      }
+
+      setImportResults(results);
+      setImportProgress(100);
+      
+      // Refresh transactions after import
+      if (results.success > 0) {
+        await fetchTransactions();
+      }
+      
+    } catch (error) {
+      console.error('Error processing import:', error);
+      alert('Terjadi kesalahan saat memproses file import');
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  // Reset import modal
+  const resetImportModal = () => {
+    setIsImportModalOpen(false);
+    setImportFile(null);
+    setImportProgress(0);
+    setImportResults(null);
+    setIsImporting(false);
+  };
+
   if (isLoading) {
     return <Loader text="Memuat Data" size="medium" />;
   }
@@ -920,15 +1451,20 @@ export default function AllTransactions() {
           <p className="text-gray-600 mt-2">Kelola dan pantau semua transaksi donasi</p>
         </div>
         <div className="flex space-x-3">
-          {selectedTransactions.length > 0 && (
-            <button
-              onClick={() => setShowBulkActions(!showBulkActions)}
-              className="bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 flex items-center space-x-2"
-            >
-              <Edit className="w-5 h-5" />
-              <span>Aksi Bulk ({selectedTransactions.length})</span>
-            </button>
-          )}
+          <button
+            onClick={downloadTemplate}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center space-x-2"
+          >
+            <FileDown className="w-5 h-5" />
+            <span>Download Template</span>
+          </button>
+          <button
+            onClick={() => setIsImportModalOpen(true)}
+            className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 flex items-center space-x-2"
+          >
+            <Upload className="w-5 h-5" />
+            <span>Import Excel</span>
+          </button>
           <button
             onClick={exportToExcel}
             className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center space-x-2"
@@ -955,11 +1491,13 @@ export default function AllTransactions() {
           </div>
         </div>
 
-        {/* Filter Header */}
-        <div className="flex items-center space-x-2 mb-4">
-          <Filter className="w-5 h-5 text-gray-400" />
-          <span className="text-sm font-medium text-gray-700">Filter:</span>
-        </div>
+        {/* Filter Header - Hidden for volunteers */}
+        {user?.role !== 'volunteer' && (
+          <>
+            <div className="flex items-center space-x-2 mb-4">
+              <Filter className="w-5 h-5 text-gray-400" />
+              <span className="text-sm font-medium text-gray-700">Filter:</span>
+            </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-4">
           <div>
@@ -1099,9 +1637,10 @@ export default function AllTransactions() {
               value={filters.programType}
               onChange={(value) => setFilters({ ...filters, programType: value })}
               placeholder="Pilih Jenis Program..."
-            />
-          </div>
+            />          </div>
         </div>
+          </>
+        )}
       </div>
 
       {/* Bulk Actions Panel */}
@@ -1177,6 +1716,7 @@ export default function AllTransactions() {
                 <th className="text-left py-4 px-6 font-medium text-gray-700">Relawan</th>
                 <th className="text-left py-4 px-6 font-medium text-gray-700">Program</th>
                 <th className="text-left py-4 px-6 font-medium text-gray-700">Nominal</th>
+                <th className="text-left py-4 px-6 font-medium text-gray-700">Regulasi</th>
                 <th className="text-left py-4 px-6 font-medium text-gray-700">Bank</th>
                 <th className="text-left py-4 px-6 font-medium text-gray-700">Tanggal</th>
                 <th className="text-left py-4 px-6 font-medium text-gray-700">Status</th>
@@ -1203,28 +1743,90 @@ export default function AllTransactions() {
                   <td className="py-4 px-6 font-medium text-green-600">
                     {(transaction.program_type === 'QURBAN' && (transaction.qurban_amount || transaction.ziswaf_program_id)) ? (
                       <div className="space-y-1">
-                         {transaction.qurban_amount && (
-                               <div className="text-sm">
-                                 <span className="text-gray-600">Nominal Qurban:</span>
-                                 <span className="ml-1 font-medium">{formatCurrency(transaction.qurban_amount || 0)}</span>
-                               </div>
-                             )}
-                             <div className="text-sm">
-                               <span className="text-gray-600">Nominal Donasi:</span>
-                               <span className="ml-1 font-medium">{formatCurrency(transaction.amount || 0)}</span>
-                             </div>
-                             <div className="text-sm border-t pt-1 mt-1">
-                               <span className="text-gray-600 font-semibold">Nominal Total:</span>
-                               <span className="ml-1 font-bold text-green-700">{formatCurrency((Number(transaction.qurban_amount) || 0) + (Number(transaction.amount) || 0))}</span>
-                             </div>
-                       </div>
+                        {transaction.qurban_amount && (
+                          <div className="text-xs">
+                            <span className="text-gray-600">Qurban:</span>
+                            <span className="ml-1 font-medium">{formatCurrency(transaction.qurban_amount || 0)}</span>
+                          </div>
+                        )}
+                        <div className="text-xs">
+                          <span className="text-gray-600">Donasi:</span>
+                          <span className="ml-1 font-medium">{formatCurrency(transaction.amount || 0)}</span>
+                        </div>
+                        <div className="text-xs border-t pt-1 mt-1">
+                          <span className="text-gray-600 font-semibold">Total:</span>
+                          <span className="ml-1 font-bold">{formatCurrency((Number(transaction.qurban_amount) || 0) + (Number(transaction.amount) || 0))}</span>
+                        </div>
+                      </div>
                     ) : (
                       formatCurrency(transaction.amount)
                     )}
                   </td>
+                  <td className="py-4 px-6 font-medium text-blue-600">
+                    {(() => {
+                      let volunteerRate = 0;
+                      let branchRate = 0;
+                      
+                      if (transaction.program_type === 'ZISWAF') {
+                        volunteerRate = transaction.ziswaf_volunteer_rate || transaction.volunteer_rate || 0;
+                        branchRate = transaction.ziswaf_branch_rate || transaction.branch_rate || 0;
+                      } else if (transaction.program_type === 'QURBAN') {
+                        if (transaction.ziswaf_program_id) {
+                          // QURBAN dengan komponen ZISWAF
+                          const qurbanVolunteerRate = transaction.volunteer_rate || 0;
+                          const ziswafVolunteerRate = transaction.ziswaf_volunteer_rate || 0;
+                          const qurbanBranchRate = transaction.branch_rate || 0;
+                          const ziswafBranchRate = transaction.ziswaf_branch_rate || 0;
+                          
+                          const qurbanAmount = Number(transaction.qurban_amount) || 0;
+                          const ziswafAmount = Number(transaction.amount) || 0;
+                          
+                          volunteerRate = ((qurbanAmount * qurbanVolunteerRate / 100) + (ziswafAmount * ziswafVolunteerRate / 100));
+                          branchRate = ((qurbanAmount * qurbanBranchRate / 100) + (ziswafAmount * ziswafBranchRate / 100));
+                          
+                          return (
+                            <div className="space-y-1">
+                              <div className="text-xs">
+                                <span className="text-gray-600">Relawan:</span>
+                                <span className="ml-1 font-medium">{formatCurrency(volunteerRate)}</span>
+                              </div>
+                              <div className="text-xs">
+                                <span className="text-gray-600">Cabang:</span>
+                                <span className="ml-1 font-medium">{formatCurrency(branchRate)}</span>
+                              </div>
+                            </div>
+                          );
+                        } else {
+                          // QURBAN tanpa komponen ZISWAF
+                          volunteerRate = transaction.volunteer_rate || 0;
+                          branchRate = transaction.branch_rate || 0;
+                        }
+                      }
+                      
+                      // Untuk QURBAN tanpa ZISWAF, gunakan qurban_amount
+                      const amount = (transaction.program_type === 'QURBAN' && !transaction.ziswaf_program_id) 
+                        ? Number(transaction.qurban_amount) || 0 
+                        : Number(transaction.amount) || 0;
+                      const volunteerCommission = amount * volunteerRate / 100;
+                      const branchCommission = amount * branchRate / 100;
+                      
+                      return (
+                        <div className="space-y-1">
+                          <div className="text-xs">
+                            <span className="text-gray-600">Relawan:</span>
+                            <span className="ml-1 font-medium">{formatCurrency(volunteerCommission)}</span>
+                          </div>
+                          <div className="text-xs">
+                            <span className="text-gray-600">Cabang:</span>
+                            <span className="ml-1 font-medium">{formatCurrency(branchCommission)}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </td>
                   <td className="py-4 px-6">{transaction.transferMethod || '-'}</td>
                   <td className="py-4 px-6 text-gray-600">
-                    {formatDate(transaction.created_at || transaction.createdAt)}
+                    {formatDate(transaction.transaction_date || transaction.transactionDate || transaction.created_at || transaction.createdAt)}
                   </td>
                   <td className="py-4 px-6">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(transaction.status)}`}>
@@ -1312,8 +1914,73 @@ export default function AllTransactions() {
                 <div>
                   <span className="text-gray-500">Tanggal:</span>
                   <p className="text-gray-900">
-                    {formatDate(transaction.created_at || transaction.createdAt)}
+                    {formatDate(transaction.transaction_date || transaction.transactionDate || transaction.created_at || transaction.createdAt)}
                   </p>
+                </div>
+                <div>
+                  <span className="text-gray-500">Regulasi:</span>
+                  <div className="text-blue-600 text-sm">
+                    {(() => {
+                      let volunteerRate = 0;
+                      let branchRate = 0;
+                      
+                      if (transaction.program_type === 'ZISWAF') {
+                        volunteerRate = transaction.ziswaf_volunteer_rate || transaction.volunteer_rate || 0;
+                        branchRate = transaction.ziswaf_branch_rate || transaction.branch_rate || 0;
+                      } else if (transaction.program_type === 'QURBAN') {
+                        if (transaction.ziswaf_program_id) {
+                          // QURBAN dengan komponen ZISWAF
+                          const qurbanVolunteerRate = transaction.volunteer_rate || 0;
+                          const ziswafVolunteerRate = transaction.ziswaf_volunteer_rate || 0;
+                          const qurbanBranchRate = transaction.branch_rate || 0;
+                          const ziswafBranchRate = transaction.ziswaf_branch_rate || 0;
+                          
+                          const qurbanAmount = Number(transaction.qurban_amount) || 0;
+                          const ziswafAmount = Number(transaction.amount) || 0;
+                          
+                          volunteerRate = ((qurbanAmount * qurbanVolunteerRate / 100) + (ziswafAmount * ziswafVolunteerRate / 100));
+                          branchRate = ((qurbanAmount * qurbanBranchRate / 100) + (ziswafAmount * ziswafBranchRate / 100));
+                          
+                          return (
+                            <div className="space-y-1">
+                              <div>
+                                <span className="text-gray-600">Relawan: </span>
+                                <span className="font-medium">{formatCurrency(volunteerRate)}</span>
+                              </div>
+                              <div>
+                                <span className="text-gray-600">Cabang: </span>
+                                <span className="font-medium">{formatCurrency(branchRate)}</span>
+                              </div>
+                            </div>
+                          );
+                        } else {
+                          // QURBAN tanpa komponen ZISWAF
+                          volunteerRate = transaction.volunteer_rate || 0;
+                          branchRate = transaction.branch_rate || 0;
+                        }
+                      }
+                      
+                      // Untuk QURBAN tanpa ZISWAF, gunakan qurban_amount
+                      const amount = (transaction.program_type === 'QURBAN' && !transaction.ziswaf_program_id) 
+                        ? Number(transaction.qurban_amount) || 0 
+                        : Number(transaction.amount) || 0;
+                      const volunteerCommission = amount * volunteerRate / 100;
+                      const branchCommission = amount * branchRate / 100;
+                      
+                      return (
+                        <div className="space-y-1">
+                          <div>
+                            <span className="text-gray-600">Relawan: </span>
+                            <span className="font-medium">{formatCurrency(volunteerCommission)}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-600">Cabang: </span>
+                            <span className="font-medium">{formatCurrency(branchCommission)}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
                 <div>
                   <span className="text-gray-500">Cabang:</span>
@@ -1393,9 +2060,9 @@ export default function AllTransactions() {
                 
                 {/* Page numbers - responsive */}
                 <div className="flex items-center space-x-1">
-                  {Array.from({ length: Math.min(window.innerWidth < 640 ? 3 : 5, totalPages) }, (_, i) => {
+                  {Array.from({ length: Math.min(isMobile ? 3 : 5, totalPages) }, (_, i) => {
                     let pageNum;
-                    const maxPages = window.innerWidth < 640 ? 3 : 5;
+                    const maxPages = isMobile ? 3 : 5;
                     if (totalPages <= maxPages) {
                       pageNum = i + 1;
                     } else if (currentPage <= Math.floor(maxPages/2) + 1) {
@@ -1439,73 +2106,165 @@ export default function AllTransactions() {
       {/* Edit Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg w-full max-w-md sm:max-w-lg md:max-w-xl lg:max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-4 sm:px-6 py-4 rounded-t-lg">
-              <h3 className="text-lg font-semibold">Edit Transaksi</h3>
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">Edit Transaksi #{editingTransaction?.id}</h3>
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
-            <form id="edit-transaction-form" onSubmit={handleSubmit}>
-              <div className="px-4 sm:px-6 py-4">
+            <form id="edit-transaction-form" onSubmit={handleSubmit} className="p-6 space-y-4">
+              <div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Nama Donatur
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.donorName}
-                      onChange={(e) => setFormData({ ...formData, donorName: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Jenis Program
-                    </label>
-                    <select
-                      value={formData.programType}
-                      onChange={(e) => setFormData({ 
-                        ...formData, 
-                        programType: e.target.value as 'ZISWAF' | 'QURBAN',
-                        programId: ''
-                      })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                      required
-                    >
-                      <option value="ZISWAF">ZISWAF</option>
-                      <option value="QURBAN">QURBAN</option>
-                    </select>
-                  </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nama Donatur <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.donorName}
+                    onChange={(e) => setFormData({ ...formData, donorName: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    required
+                  />
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Jenis Program <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={formData.programType}
+                    onChange={(e) => setFormData({ 
+                      ...formData, 
+                      programType: e.target.value as 'ZISWAF' | 'QURBAN',
+                      programId: ''
+                    })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    required
+                  >
+                    <option value="ZISWAF">ZISWAF</option>
+                    <option value="QURBAN">QURBAN</option>
+                  </select>
+                </div>
+              </div>
                 
                 {/* Nama Pengqurban - Only for QURBAN */}
+                 {formData.programType === 'QURBAN' && (
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                     <div>
+                       <label className="block text-sm font-medium text-gray-700 mb-1">
+                         Nama Pengqurban <span className="text-red-500">*</span>
+                       </label>
+                       <input
+                         type="text"
+                         value={formData.qurbanOwnerName}
+                         onChange={(e) => setFormData({ ...formData, qurbanOwnerName: e.target.value })}
+                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                         placeholder="Masukkan nama pengqurban"
+                         required
+                       />
+                     </div>
+                     <div>
+                       <label className="block text-sm font-medium text-gray-700 mb-1">
+                         Nominal Qurban <span className="text-red-500">*</span>
+                       </label>
+                       <div className="relative">
+                         <span className="text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2 font-medium text-sm">Rp</span>
+                         <input
+                           type="text"
+                           value={formData.qurbanAmount ? new Intl.NumberFormat('id-ID').format(Number(formData.qurbanAmount)) : ''}
+                           onChange={(e) => {
+                             const value = e.target.value.replace(/\D/g, '');
+                             setFormData({ ...formData, qurbanAmount: value });
+                           }}
+                           className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                           placeholder="0"
+                           required
+                         />
+                       </div>
+                       <p className="text-xs text-gray-500 mt-1">
+                         Nilai: Rp {Number(formData.qurbanAmount) || 0}
+                       </p>
+                     </div>
+                   </div>
+                 )}
+                
+                {/* For QURBAN - Type Hewan Qurban and Tanggal Transaksi side by side */}
                 {formData.programType === 'QURBAN' && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Nama Pengqurban
+                        Type Hewan Qurban <span className="text-red-500">*</span>
                       </label>
-                      <input
-                        type="text"
-                        value={formData.qurbanOwnerName}
-                        onChange={(e) => setFormData({ ...formData, qurbanOwnerName: e.target.value })}
+                      <select
+                        value={formData.programId}
+                        onChange={(e) => setFormData({ ...formData, programId: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                        placeholder="Masukkan nama pengqurban"
                         required
-                      />
+                      >
+                        <option value="">Pilih Type Hewan Qurban</option>
+                        {programs
+                          .filter(program => program.type === 'QURBAN')
+                          .map(program => (
+                            <option key={program.id} value={program.id}>
+                              {program.name} ({program.code})
+                            </option>
+                          ))}
+                      </select>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Nominal Qurban
+                        Tanggal Transaksi <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="datetime-local"
+                        value={formData.transactionDate}
+                        onChange={(e) => setFormData({ ...formData, transactionDate: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        required
+                      />
+                    </div>
+                  </div>
+                )}
+                
+                {/* For ZISWAF - Program and Nominal Donasi side by side */}
+                {formData.programType === 'ZISWAF' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Program <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={formData.programId}
+                        onChange={(e) => setFormData({ ...formData, programId: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        required
+                      >
+                        <option value="">Pilih Program</option>
+                        {programs
+                          .filter(program => program.type === 'ZISWAF')
+                          .map(program => (
+                            <option key={program.id} value={program.id}>
+                              {program.name} ({program.code})
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Nominal Donasi <span className="text-red-500">*</span>
                       </label>
                       <div className="relative">
                         <span className="text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2 font-medium text-sm">Rp</span>
                         <input
                           type="text"
-                          value={formatCurrencyInput(String(formData.qurbanAmount))}
+                          value={formData.amount ? new Intl.NumberFormat('id-ID').format(formData.amount) : ''}
                           onChange={(e) => {
                             const value = e.target.value.replace(/\D/g, '');
-                            setFormData({ ...formData, qurbanAmount: value });
+                            setFormData({ ...formData, amount: Number(value) });
                           }}
                           className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                           placeholder="0"
@@ -1513,131 +2272,114 @@ export default function AllTransactions() {
                         />
                       </div>
                       <p className="text-xs text-gray-500 mt-1">
-                        Nilai: Rp {Number(formData.qurbanAmount) || 0}
+                        Nilai: Rp {Number(formData.amount) || 0}
                       </p>
                     </div>
                   </div>
                 )}
                 
-                {/* Program ZISWAF - Optional for QURBAN */}
-                {formData.programType === 'QURBAN' && (
+                {/* For ZISWAF - Tanggal Transaksi full width */}
+                {formData.programType === 'ZISWAF' && (
                   <div className="mb-4">
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Program ZISWAF (Opsional)
-                    </label>
-                    <select
-                      value={formData.ziswafProgramId}
-                      onChange={(e) => setFormData({ ...formData, ziswafProgramId: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                    >
-                      <option value="">Pilih Program ZISWAF (Opsional)</option>
-                      {programs.filter(program => program.type === 'ZISWAF').map(program => (
-                        <option key={program.id} value={program.id}>
-                          {program.name} ({program.code})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                
-                {/* Amount - Always visible for ZISWAF, only visible for QURBAN when ZISWAF program selected */}
-                {(formData.programType === 'ZISWAF' || (formData.programType === 'QURBAN' && formData.ziswafProgramId)) && (
-                  <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Nominal Donasi
-                    </label>
-                    <div className="relative">
-                      <span className="text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2 font-medium text-sm">Rp</span>
-                      <input
-                        type="text"
-                        value={formatCurrencyInput(String(formData.amount))}
-                        onChange={(e) => {
-                          const value = e.target.value.replace(/\D/g, '');
-                          setFormData({ ...formData, amount: Number(value) });
-                        }}
-                        className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                        placeholder="0"
-                        required
-                      />
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Nilai: Rp {Number(formData.amount) || 0}
-                    </p>
-                  </div>
-                )}
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Tanggal Transaksi
+                      Tanggal Transaksi <span className="text-red-500">*</span>
                     </label>
                     <input
-                      type="date"
+                      type="datetime-local"
                       value={formData.transactionDate}
                       onChange={(e) => setFormData({ ...formData, transactionDate: e.target.value })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                       required
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Metode Transfer
-                    </label>
-                    <select
-                      value={formData.transferMethod}
-                      onChange={(e) => setFormData({ ...formData, transferMethod: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                      required
-                    >
-                      <option value="">Pilih Metode Transfer</option>
-                      {paymentMethods.map(method => (
-                        <option key={method.id} value={method.name}>{method.name}</option>
-                      ))}
-                    </select>
+                )}
+                
+                {/* Program ZISWAF and Nominal Donasi for QURBAN */}
+                {formData.programType === 'QURBAN' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Program ZISWAF (Opsional)
+                      </label>
+                      <select
+                        value={formData.ziswafProgramId}
+                        onChange={(e) => setFormData({ ...formData, ziswafProgramId: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      >
+                        <option value="">Pilih Program ZISWAF (Opsional)</option>
+                        {programs.filter(program => program.type === 'ZISWAF').map(program => (
+                          <option key={program.id} value={program.id}>
+                            {program.name} ({program.code})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    
+                    {/* Nominal Donasi - Only visible for QURBAN when ZISWAF program selected */}
+                    {formData.ziswafProgramId && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Nominal Donasi <span className="text-red-500">*</span>
+                        </label>
+                        <div className="relative">
+                          <span className="text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2 font-medium text-sm">Rp</span>
+                          <input
+                            type="text"
+                            value={formData.amount ? new Intl.NumberFormat('id-ID').format(formData.amount) : ''}
+                            onChange={(e) => {
+                              const value = e.target.value.replace(/\D/g, '');
+                              setFormData({ ...formData, amount: Number(value) });
+                            }}
+                            className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                            placeholder="0"
+                            required
+                          />
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Nilai: Rp {Number(formData.amount) || 0}
+                        </p>
+                      </div>
+                    )}
                   </div>
-                </div>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    {formData.programType === 'QURBAN' ? 'Type Hewan Qurban' : 'Program'}
-                  </label>
-                  <select
-                    value={formData.programId}
-                    onChange={(e) => setFormData({ ...formData, programId: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                    required
-                  >
-                    <option value="">
-                      {formData.programType === 'QURBAN' ? 'Pilih Type Hewan Qurban' : 'Pilih Program'}
-                    </option>
-                    {programs
-                      .filter(program => program.type === formData.programType)
-                      .map(program => (
-                        <option key={program.id} value={program.id}>
-                          {program.name} ({program.code})
-                        </option>
-                      ))}
-                  </select>
-                </div>
+                )}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                   <div>
+                     <label className="block text-sm font-medium text-gray-700 mb-1">
+                       Metode Transfer <span className="text-red-500">*</span>
+                     </label>
+                     <select
+                       value={formData.paymentMethodId}
+                       onChange={(e) => setFormData({ ...formData, paymentMethodId: e.target.value })}
+                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                       required
+                     >
+                       <option value="">Pilih Metode Transfer</option>
+                       {paymentMethods.map(method => (
+                         <option key={method.id} value={method.id}>{method.name}</option>
+                       ))}
+                     </select>
+                   </div>
+                   <div>
+                     <label className="block text-sm font-medium text-gray-700 mb-1">
+                       Cabang <span className="text-red-500">*</span>
+                     </label>
+                     <select
+                       value={formData.branchId}
+                       onChange={(e) => setFormData({ ...formData, branchId: e.target.value, teamId: '', volunteerId: '' })}
+                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                       required
+                     >
+                       <option value="">Pilih Cabang</option>
+                       {branches.map(branch => (
+                         <option key={branch.id} value={branch.id}>{branch.name}</option>
+                       ))}
+                     </select>
+                   </div>
+                 </div>
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Cabang
-                    </label>
-                    <select
-                      value={formData.branchId}
-                      onChange={(e) => setFormData({ ...formData, branchId: e.target.value, teamId: '', volunteerId: '' })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                      required
-                    >
-                      <option value="">Pilih Cabang</option>
-                      {branches.map(branch => (
-                        <option key={branch.id} value={branch.id}>{branch.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Tim
+                      Tim <span className="text-red-500">*</span>
                     </label>
                     <select
                       value={formData.teamId}
@@ -1658,11 +2400,9 @@ export default function AllTransactions() {
                         ))}
                     </select>
                   </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Relawan
+                      Relawan <span className="text-red-500">*</span>
                     </label>
                     <select
                       value={formData.volunteerId}
@@ -1683,9 +2423,11 @@ export default function AllTransactions() {
                         ))}
                     </select>
                   </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Status
+                      Status <span className="text-red-500">*</span>
                     </label>
                     <select
                       value={formData.status}
@@ -1701,34 +2443,65 @@ export default function AllTransactions() {
                       <option value="other">Lainnya</option>
                     </select>
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Alasan Status
+                    </label>
+                    <textarea
+                      value={formData.statusReason || ''}
+                      onChange={(e) => setFormData({ ...formData, statusReason: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      placeholder="Masukkan alasan status (opsional)"
+                      rows={3}
+                    />
+                  </div>
+                </div>
+                
+                {/* Proof Image */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Bukti Transaksi (Opsional)
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setFormData({ ...formData, proofImage: file });
+                      }
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Kosongkan jika tidak ingin mengubah gambar</p>
+
+                </div>
+                <div className="sticky bottom-0 bg-white border-t border-gray-200 px-4 sm:px-6 py-4 rounded-b-lg">
+                  <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-3">
+                    <button
+                       type="button"
+                       onClick={() => setIsModalOpen(false)}
+                       className="w-full sm:w-auto px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-sm"
+                     >
+                       Batal
+                     </button>
+                    <button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="w-full sm:w-auto px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center space-x-2 text-sm"
+                    >
+                      {isSubmitting && (
+                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                      )}
+                      <span>{isSubmitting ? 'Menyimpan...' : 'Simpan'}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             </form>
-            <div className="sticky bottom-0 bg-white border-t border-gray-200 px-4 sm:px-6 py-4 rounded-b-lg">
-              <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-3">
-                <button
-                   type="button"
-                   onClick={() => setIsModalOpen(false)}
-                   className="w-full sm:w-auto px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-sm"
-                 >
-                   Batal
-                 </button>
-                <button
-                  type="submit"
-                  form="edit-transaction-form"
-                  disabled={isSubmitting}
-                  className="w-full sm:w-auto px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center space-x-2 text-sm"
-                >
-                  {isSubmitting && (
-                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                  )}
-                  <span>{isSubmitting ? 'Menyimpan...' : 'Simpan'}</span>
-                </button>
-              </div>
-            </div>
           </div>
         </div>
       )}
@@ -1829,6 +2602,119 @@ export default function AllTransactions() {
               >
                 Terapkan Filter
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import Excel Modal */}
+      {isImportModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center p-6 border-b border-gray-200">
+              <h2 className="text-xl font-semibold text-gray-900">Import Transaksi dari Excel</h2>
+              <button
+                onClick={resetImportModal}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-6">
+              {!importResults ? (
+                <div className="space-y-6">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <h3 className="font-medium text-blue-900 mb-2">Petunjuk Import:</h3>
+                    <ul className="text-sm text-blue-800 space-y-1">
+                      <li>• Download template Excel terlebih dahulu</li>
+                      <li>• Isi data sesuai format yang disediakan</li>
+                      <li>• Pastikan semua kolom wajib terisi</li>
+                      <li>• Format tanggal: DD/MM/YYYY atau DD/MM/YYYY HH:MM:SS</li>
+                      <li>• Maksimal 1000 baris per import</li>
+                    </ul>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Pilih File Excel
+                      </label>
+                      <input
+                        type="file"
+                        accept=".xlsx,.xls"
+                        onChange={handleFileImport}
+                        className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                      />
+                    </div>
+                    
+                    {importFile && (
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                        <p className="text-sm text-green-800">
+                          File dipilih: <span className="font-medium">{importFile.name}</span>
+                        </p>
+                      </div>
+                    )}
+                    
+                    {isImporting && (
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-sm text-gray-600">
+                          <span>Progress Import</span>
+                          <span>{importProgress}%</span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div 
+                            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                            style={{ width: `${importProgress}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <h3 className="font-medium text-green-900 mb-2">Hasil Import</h3>
+                    <p className="text-sm text-green-800">
+                      <span className="font-medium">{importResults.success}</span> transaksi berhasil diimport
+                    </p>
+                  </div>
+                  
+                  {importResults.errors.length > 0 && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                      <h3 className="font-medium text-red-900 mb-2">
+                        Error ({importResults.errors.length} baris)
+                      </h3>
+                      <div className="max-h-40 overflow-y-auto space-y-1">
+                        {importResults.errors.map((error, index) => (
+                          <p key={index} className="text-sm text-red-800">
+                            Baris {error.row}: {error.message}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            
+            <div className="flex gap-3 p-6 border-t border-gray-200">
+              <button
+                onClick={resetImportModal}
+                className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                {importResults ? 'Tutup' : 'Batal'}
+              </button>
+              {!importResults && (
+                <button
+                  onClick={processImport}
+                  disabled={!importFile || isImporting}
+                  className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isImporting ? 'Memproses...' : 'Import Data'}
+                </button>
+              )}
             </div>
           </div>
         </div>

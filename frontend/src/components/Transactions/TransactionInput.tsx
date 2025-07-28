@@ -9,12 +9,13 @@ import { usePaymentMethods } from '../../hooks/usePaymentMethods';
 import { useUsers } from '../../hooks/useUsers';
 import { User, Team } from '../../types';
 import { teamsAPI } from '../../services/api';
+import { getCurrentIndonesianDateTime, convertInputToISO } from '../../utils/dateUtils';
 
 export default function TransactionInput() {
   const { user } = useAuth();
   const { branches } = useBranches();
   const { programs } = usePrograms();
-  const { createTransaction } = useTransactions();
+  const { createTransaction, fetchMyTransactionsStats } = useTransactions();
   const { paymentMethods } = usePaymentMethods();
   const { getUsersByTeam } = useUsers();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -34,7 +35,7 @@ export default function TransactionInput() {
     ziswafProgramId: '',
     transferMethod: '',
     proofImage: null as File | null,
-    datetime: new Date().toISOString().slice(0, 16)
+    datetime: getCurrentIndonesianDateTime()
   });
 
   const filteredPrograms = programs.filter(program => program.type === formData.programType);
@@ -158,14 +159,15 @@ export default function TransactionInput() {
       if (formData.amount || formData.programType === 'ZISWAF' || formData.ziswafProgramId) {
         formDataToSend.append('amount', formData.amount || '0');
       }
-      formDataToSend.append('transaction_date', formData.datetime);
-      formDataToSend.append('transfer_method', formData.transferMethod);
+      formDataToSend.append('transaction_date', convertInputToISO(formData.datetime));
+      formDataToSend.append('payment_method_id', formData.transferMethod);
       
       if (formData.proofImage) {
         formDataToSend.append('proof_image', formData.proofImage);
       }
       
       await createTransaction(formDataToSend);
+      await fetchMyTransactionsStats();
       
       alert('Transaksi berhasil disimpan!');
       
@@ -183,7 +185,7 @@ export default function TransactionInput() {
         ziswafProgramId: '',
         transferMethod: '',
         proofImage: null,
-        datetime: new Date().toISOString().slice(0, 16)
+        datetime: getCurrentIndonesianDateTime()
       });
       
       // Reset file input
@@ -402,7 +404,7 @@ export default function TransactionInput() {
                 >
                   <option value="">Pilih Metode Transfer</option>
                   {paymentMethods.map(method => (
-                    <option key={method.id} value={method.name}>{method.name}</option>
+                    <option key={method.id} value={method.id}>{method.name}</option>
                   ))}
                 </select>
               </div>

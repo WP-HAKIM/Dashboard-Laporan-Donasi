@@ -73,8 +73,13 @@ export default function ProgramTrendChart({ data }: ProgramTrendChartProps) {
     return allMonths.map((month, monthIndex) => {
       const monthData = program.monthly_data.find((item: any) => item.month === month);
       const amount = monthData ? monthData.total_amount : 0;
-      const x = (monthIndex / (allMonths.length - 1)) * innerWidth;
-      const y = innerHeight - (amount / maxAmount) * innerHeight;
+      // Handle case when there's only one month to avoid division by zero
+      const x = allMonths.length > 1 
+        ? (monthIndex / (allMonths.length - 1)) * innerWidth
+        : innerWidth / 2; // Center the point if only one month
+      const y = maxAmount > 0 
+        ? innerHeight - (amount / maxAmount) * innerHeight
+        : innerHeight; // Bottom if no amount
       return { x, y, amount, month };
     });
   };
@@ -127,7 +132,10 @@ export default function ProgramTrendChart({ data }: ProgramTrendChartProps) {
           
           {/* X-axis labels */}
           {allMonths.map((month, index) => {
-            const x = padding.left + (index / (allMonths.length - 1)) * innerWidth;
+            // Handle case when there's only one month to avoid division by zero
+            const x = allMonths.length > 1 
+              ? padding.left + (index / (allMonths.length - 1)) * innerWidth
+              : padding.left + innerWidth / 2; // Center the label if only one month
             return (
               <g key={index}>
                 <line 

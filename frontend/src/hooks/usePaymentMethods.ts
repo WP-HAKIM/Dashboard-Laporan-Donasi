@@ -8,7 +8,7 @@ export const usePaymentMethods = () => {
 
   const fetchPaymentMethods = async () => {
     try {
-      const data = await paymentMethodService.getAllPublic();
+      const data = await paymentMethodService.getAll();
       setPaymentMethods(data.filter((method: PaymentMethod) => method.is_active));
     } catch (err) {
       setError('Error fetching payment methods');

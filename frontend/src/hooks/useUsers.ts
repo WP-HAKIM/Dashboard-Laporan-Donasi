@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { User } from '../types';
 import { usersAPI } from '../services/api';
 
@@ -58,23 +58,23 @@ export function useUsers() {
     }
   };
 
-  const getUsersByBranch = async (branchId: string) => {
+  const getUsersByBranch = useCallback(async (branchId: string) => {
     try {
       const response = await usersAPI.getByBranch(branchId);
       return response.data || response || [];
     } catch (err: any) {
       throw new Error(err.response?.data?.message || 'Failed to fetch users by branch');
     }
-  };
+  }, []);
 
-  const getUsersByTeam = async (teamId: string) => {
+  const getUsersByTeam = useCallback(async (teamId: string) => {
     try {
       const response = await usersAPI.getByTeam(teamId);
       return response.data || response || [];
     } catch (err: any) {
       throw new Error(err.response?.data?.message || 'Failed to fetch users by team');
     }
-  };
+  }, []);
 
   return {
     users,

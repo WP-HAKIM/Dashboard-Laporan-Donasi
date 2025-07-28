@@ -195,6 +195,11 @@ export const transactionsAPI = {
     return response.data;
   },
   
+  getMyTransactionsStats: async () => {
+    const response = await api.get('/my-transactions-stats');
+    return response.data;
+  },
+  
   getById: async (id: string) => {
     const response = await api.get(`/transactions/${id}`);
     return response.data;
@@ -217,8 +222,14 @@ export const transactionsAPI = {
     return response.data;
   },
   
-  update: async (id: string, data: Partial<Transaction>) => {
-    const response = await api.put(`/transactions/${id}`, data);
+  update: async (id: string, data: Partial<Transaction> | FormData) => {
+    const config: any = {};
+    if (data instanceof FormData) {
+      config.headers = {
+        'Content-Type': 'multipart/form-data',
+      };
+    }
+    const response = await api.put(`/transactions/${id}`, data, config);
     return response.data;
   },
 
@@ -226,6 +237,13 @@ export const transactionsAPI = {
     const response = await api.post('/transactions/bulk-update-status', {
       transaction_ids: transactionIds,
       status: status
+    });
+    return response.data;
+  },
+
+  import: async (transactions: any[]) => {
+    const response = await api.post('/transactions/import', {
+      transactions: transactions
     });
     return response.data;
   },

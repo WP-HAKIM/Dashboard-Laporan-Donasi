@@ -48,6 +48,7 @@ export interface Transaction {
   volunteer_id: number;
   program_type: 'ZISWAF' | 'QURBAN';
   program_id: number;
+  payment_method_id?: number;
   donor_name: string;
   amount: number;
   transaction_date: string;
