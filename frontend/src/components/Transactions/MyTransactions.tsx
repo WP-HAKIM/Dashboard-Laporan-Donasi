@@ -32,7 +32,7 @@ export default function MyTransactions() {
   const [isDateRangeModalOpen, setIsDateRangeModalOpen] = useState(false);
   const [tempDateFrom, setTempDateFrom] = useState('');
   const [tempDateTo, setTempDateTo] = useState('');
-  const [datePreset, setDatePreset] = useState('all');
+  const [datePreset, setDatePreset] = useState('current_month');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [formData, setFormData] = useState({
@@ -53,21 +53,77 @@ export default function MyTransactions() {
     proofImage: null as File | null
   });
 
+  // Initialize date filter based on default preset
+  React.useEffect(() => {
+    if (datePreset === 'current_month') {
+      const now = new Date();
+      const dateFrom = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+      const dateTo = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+      setFilters(prev => ({ ...prev, dateFrom, dateTo }));
+    }
+  }, []); // Only run on mount
+
   // Fetch my transactions and stats on component mount
   React.useEffect(() => {
     fetchMyTransactions();
     fetchMyTransactionsStats();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+
+
+  // Helper functions
+  const getBranchName = (transaction: Transaction) => {
+    return transaction.branch?.name || (branches || []).find(b => b.id === transaction.branchId)?.name || '-';
+  };
+
+  const getTeamName = (transaction: Transaction) => {
+    return transaction.team?.name || (teams || []).find(t => t.id === transaction.teamId)?.name || '-';
+  };
+
+  const getVolunteerName = (transaction: Transaction) => {
+    return transaction.volunteer?.name || '-';
+  };
+
+  // Helper function to get program name as string for search purposes
+  const getProgramNameString = (transaction: Transaction) => {
+    if (!transaction) return '';
+    
+    const mainProgram = transaction.program?.name || (programs || []).find(p => p.id === transaction.program_id)?.name || '';
+    
+    if (transaction.program_type === 'QURBAN') {
+      const ziswafProgram = transaction.ziswaf_program?.name || 
+        (transaction.ziswaf_program_id ? (programs || []).find(p => p.id === transaction.ziswaf_program_id)?.name : '');
+      
+      return `${mainProgram} ${ziswafProgram}`.trim();
+    }
+    
+    return mainProgram;
+  };
+
   // Use myTransactions directly from the hook
   const filteredTransactions = (myTransactions || []).filter(transaction => {
     // Safety check for transaction object
     if (!transaction) return false;
     
-    const donorName = transaction.donorName || transaction.donor_name || '';
-    const matchesSearch = 
-      donorName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (transaction.id?.toString().toLowerCase() || '').includes(searchTerm.toLowerCase());
+    // Search filter - same as AllTransactions
+    let matchesSearch = true;
+    if (searchTerm) {
+      const searchTermLower = searchTerm.toLowerCase();
+      const searchableFields = [
+        transaction.donorName || transaction.donor_name || '',
+        transaction.transferMethod || transaction.transfer_method || '',
+        getBranchName(transaction),
+        getTeamName(transaction),
+        getVolunteerName(transaction),
+        getProgramNameString(transaction),
+        transaction.amount?.toString() || '',
+        transaction.id?.toString() || ''
+      ];
+      
+      matchesSearch = searchableFields.some(field => 
+        String(field).toLowerCase().includes(searchTermLower)
+      );
+    }
     
     const createdAt = transaction.created_at || transaction.createdAt || '';
     const matchesDateFrom = !filters.dateFrom || !createdAt || new Date(createdAt) >= new Date(filters.dateFrom);
@@ -77,14 +133,6 @@ export default function MyTransactions() {
 
     return matchesSearch && matchesDateFrom && matchesDateTo && matchesStatus && matchesProgram;
   });
-
-  const getBranchName = (transaction: Transaction) => {
-    return transaction.branch?.name || (branches || []).find(b => b.id === transaction.branchId)?.name || '-';
-  };
-
-  const getTeamName = (transaction: Transaction) => {
-    return transaction.team?.name || (teams || []).find(t => t.id === transaction.teamId)?.name || '-';
-  };
 
   const getProgramName = (transaction: Transaction) => {
     const mainProgram = transaction.program?.name || (programs || []).find(p => p.id === transaction.program_id)?.name || '-';
@@ -110,10 +158,6 @@ export default function MyTransactions() {
     return mainProgram;
   };
 
-  const getVolunteerName = (transaction: Transaction) => {
-    return transaction.volunteer?.name || '-';
-  };
-
   const formatDate = (dateString: string) => {
     try {
       const date = new Date(dateString);
@@ -125,8 +169,7 @@ export default function MyTransactions() {
         month: 'short',
         day: 'numeric',
         hour: '2-digit',
-        minute: '2-digit',
-        timeZone: 'Asia/Jakarta'
+        minute: '2-digit'
       });
     } catch (error) {
       return '-';
@@ -254,18 +297,44 @@ export default function MyTransactions() {
           break;
       }
       
-      setFilters({ ...filters, dateFrom, dateTo });
+      const newFilters = { ...filters, dateFrom, dateTo };
+      setFilters(newFilters);
+      
+      // Fetch transactions with new filters
+      const params: any = {};
+      if (preset && preset !== 'all') {
+        params.date_preset = preset;
+      } else if (dateFrom || dateTo) {
+        if (dateFrom) params.date_from = dateFrom;
+        if (dateTo) params.date_to = dateTo;
+      }
+      if (newFilters.status) params.status = newFilters.status;
+      if (newFilters.programType) params.program_type = newFilters.programType;
+      
+      fetchMyTransactions(params);
+      fetchMyTransactionsStats();
     }
   };
 
   const handleDateRangeSubmit = () => {
     if (tempDateFrom && tempDateTo) {
       setDatePreset('custom');
-      setFilters({ 
+      const newFilters = { 
         ...filters, 
         dateFrom: tempDateFrom, 
         dateTo: tempDateTo 
-      });
+      };
+      setFilters(newFilters);
+      
+      // Fetch transactions with new filters
+      const params: any = {};
+      if (tempDateFrom) params.date_from = tempDateFrom;
+      if (tempDateTo) params.date_to = tempDateTo;
+      if (newFilters.status) params.status = newFilters.status;
+      if (newFilters.programType) params.program_type = newFilters.programType;
+      
+      fetchMyTransactions(params);
+      fetchMyTransactionsStats();
       setIsDateRangeModalOpen(false);
     }
   };
@@ -566,10 +635,11 @@ export default function MyTransactions() {
           </div>
         </div>
         
+
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium text-gray-600">Total Donasi Ziswaf</p>
+              <p className="text-xs font-medium text-gray-600">Total Ziswaf</p>
               <p className="text-lg font-bold text-emerald-600 mt-1">
                 {formatCurrency(myTransactionsStats?.ziswaf_total || 0)}
               </p>
@@ -594,6 +664,7 @@ export default function MyTransactions() {
           </div>
         </div>
         
+
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
           <div className="flex items-center justify-between">
             <div>
@@ -683,21 +754,24 @@ export default function MyTransactions() {
 
       {/* Search and Filters */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-4">
+        {/* Search - Full width */}
+        <div className="mb-4">
           <div className="relative">
             <Search className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Cari berdasarkan nama donatur atau ID transaksi..."
+              placeholder="Cari berdasarkan nama donatur, bank, cabang, tim, relawan, program, nominal, atau ID transaksi..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
-          <div className="flex items-center space-x-2">
-            <Filter className="w-5 h-5 text-gray-400" />
-            <span className="text-sm font-medium text-gray-700">Filter:</span>
-          </div>
+        </div>
+        
+        {/* Filter Header */}
+        <div className="flex items-center space-x-2 mb-4">
+          <Filter className="w-5 h-5 text-gray-400" />
+          <span className="text-sm font-medium text-gray-700">Filter:</span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

@@ -6,8 +6,10 @@ export function useTransactions() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [myTransactions, setMyTransactions] = useState<Transaction[]>([]);
   const [myTransactionsStats, setMyTransactionsStats] = useState<{
+    total_amount: number;
     ziswaf_total: number;
     qurban_total: number;
+    total_validated: number;
     volunteer_regulation: number;
   } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -22,6 +24,7 @@ export function useTransactions() {
     date_from?: string;
     date_to?: string;
     date_preset?: string;
+    paginate?: string;
   }) => {
     try {
       setIsLoading(true);

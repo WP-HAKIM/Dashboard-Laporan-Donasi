@@ -77,8 +77,7 @@ export default function DashboardView() {
         month: 'short',
         day: 'numeric',
         hour: '2-digit',
-        minute: '2-digit',
-        timeZone: 'Asia/Jakarta'
+        minute: '2-digit'
       });
     } catch (error) {
       return '-';

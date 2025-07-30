@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\ProgramController;
 use App\Http\Controllers\Api\TeamController;
 use App\Http\Controllers\Api\TransactionController;
 use App\Http\Controllers\Api\UserController;
+use App\Http\Controllers\ReportsController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -55,4 +56,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/my-transactions', [TransactionController::class, 'myTransactions']);
     Route::get('/my-transactions-stats', [TransactionController::class, 'myTransactionsStats']);
     Route::get('/pending-transactions', [TransactionController::class, 'pending']);
+    
+    // Reports routes
+    Route::get('/reports/branches', [ReportsController::class, 'getBranchReports']);
+    Route::get('/reports/volunteers', [ReportsController::class, 'getVolunteerReports']);
+    Route::get('/reports/branches/{branchId}/detail', [ReportsController::class, 'getBranchDetailReport']);
+    Route::get('/reports/summary', [ReportsController::class, 'getSummaryStats']);
 });

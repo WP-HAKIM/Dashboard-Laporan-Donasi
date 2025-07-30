@@ -12,6 +12,7 @@ import TransactionInput from './components/Transactions/TransactionInput';
 import ValidationView from './components/Transactions/ValidationView';
 import BranchManagement from './components/Branches/BranchManagement';
 import TeamManagement from './components/Teams/TeamManagement';
+import ReportsView from './components/Reports/ReportsView';
 
 function AppContent() {
   const { user, isLoading } = useAuth();
@@ -51,6 +52,8 @@ function AppContent() {
         return <AllTransactions />;
       case 'my-transactions':
         return <MyTransactions />;
+      case 'reports':
+        return <ReportsView />;
       case 'branches':
         return <BranchManagement />;
       case 'teams':

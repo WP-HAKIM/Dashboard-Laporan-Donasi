@@ -24,11 +24,11 @@ class TransactionController extends Controller
             $query->where('volunteer_id', $user->id);
             
             // Also filter by their branch and team for consistency
-            if ($user->branch_id || $user->branchId) {
-                $query->where('branch_id', $user->branch_id ?? $user->branchId);
+            if ($user->branch_id) {
+                $query->where('branch_id', $user->branch_id);
             }
-            if ($user->team_id || $user->teamId) {
-                $query->where('team_id', $user->team_id ?? $user->teamId);
+            if ($user->team_id) {
+                $query->where('team_id', $user->team_id);
             }
         } else {
             // For non-volunteer users, apply filters as before
@@ -95,6 +95,17 @@ class TransactionController extends Controller
             }
         }
 
+        // Check if pagination is requested
+        if ($request->has('paginate') && $request->paginate === 'false') {
+            // Return all transactions without pagination
+            $transactions = $query->orderBy('created_at', 'desc')->get();
+            return response()->json([
+                'data' => $transactions,
+                'total' => $transactions->count()
+            ]);
+        }
+        
+        // Default pagination
         $transactions = $query->orderBy('created_at', 'desc')->paginate(20);
         return response()->json($transactions);
     }
@@ -299,13 +310,8 @@ class TransactionController extends Controller
         $query = Transaction::with(['branch', 'team', 'volunteer', 'program', 'validator', 'paymentMethod'])
             ->where('volunteer_id', $user->id);
             
-        // Also filter by user's branch and team for consistency
-        if ($user->branch_id || $user->branchId) {
-            $query->where('branch_id', $user->branch_id ?? $user->branchId);
-        }
-        if ($user->team_id || $user->teamId) {
-            $query->where('team_id', $user->team_id ?? $user->teamId);
-        }
+        // Note: Removed additional branch_id and team_id filters as they may be too restrictive
+        // The volunteer_id filter should be sufficient for myTransactions
         
         // Apply additional filters if provided
         if ($request->has('status')) {
@@ -325,6 +331,17 @@ class TransactionController extends Controller
             $query->whereDate('created_at', '<=', $request->date_to);
         }
         
+        // Check if pagination is requested
+        if ($request->has('paginate') && $request->paginate === 'false') {
+            // Return all transactions without pagination
+            $transactions = $query->orderBy('created_at', 'desc')->get();
+            return response()->json([
+                'data' => $transactions,
+                'total' => $transactions->count()
+            ]);
+        }
+        
+        // Default pagination
         $transactions = $query->orderBy('created_at', 'desc')->paginate(20);
         
         return response()->json($transactions);
@@ -343,6 +360,17 @@ class TransactionController extends Controller
             $query->where('branch_id', $request->user()->branch_id);
         }
 
+        // Check if pagination is requested
+        if ($request->has('paginate') && $request->paginate === 'false') {
+            // Return all transactions without pagination
+            $transactions = $query->orderBy('created_at', 'asc')->get();
+            return response()->json([
+                'data' => $transactions,
+                'total' => $transactions->count()
+            ]);
+        }
+        
+        // Default pagination
         $transactions = $query->orderBy('created_at', 'asc')->paginate(20);
         return response()->json($transactions);
     }
@@ -354,20 +382,15 @@ class TransactionController extends Controller
     {
         $user = $request->user();
         
-        // Base query for user's transactions
+        // Base query for user's transactions (remove branch and team filters)
         $query = Transaction::with(['program'])
             ->where('volunteer_id', $user->id)
             ->where('status', 'valid'); // Only validated transactions
-            
-        // Also filter by user's branch and team for consistency
-        if ($user->branch_id || $user->branchId) {
-            $query->where('branch_id', $user->branch_id ?? $user->branchId);
-        }
-        if ($user->team_id || $user->teamId) {
-            $query->where('team_id', $user->team_id ?? $user->teamId);
-        }
         
         $transactions = $query->get();
+        
+        // Calculate total amount (amount + qurban_amount from all transactions)
+        $totalAmount = $transactions->sum('amount') + $transactions->sum('qurban_amount');
         
         // Calculate ZISWAF total (amount from ZISWAF transactions + amount from QURBAN with ziswaf_program_id)
         $ziswafTotal = $transactions->where('program_type', 'ZISWAF')->sum('amount') +
@@ -377,6 +400,9 @@ class TransactionController extends Controller
         
         // Calculate QURBAN total (qurban_amount from QURBAN transactions)
         $qurbanTotal = $transactions->where('program_type', 'QURBAN')->sum('qurban_amount');
+        
+        // Calculate total validated (total amount + qurban amount)
+        $totalValidated = $totalAmount;
         
         // Calculate Volunteer Regulation with proper rates
         $volunteerRegulation = 0;
@@ -404,8 +430,10 @@ class TransactionController extends Controller
         }
         
         return response()->json([
+            'total_amount' => $totalAmount,
             'ziswaf_total' => $ziswafTotal,
             'qurban_total' => $qurbanTotal,
+            'total_validated' => $totalValidated,
             'volunteer_regulation' => $volunteerRegulation,
         ]);
     }

@@ -9,6 +9,7 @@ import {
   Building, 
   UsersRound,
   CreditCard,
+  BarChart3,
   LogOut,
   Menu,
   X
@@ -34,6 +35,7 @@ export default function Sidebar({ activeTab, setActiveTab, collapsed, setCollaps
     { id: 'validation', label: 'Validasi Transaksi', icon: CheckSquare, roles: ['admin', 'validator'] },
     { id: 'all-transactions', label: 'Semua Transaksi', icon: List, roles: ['admin', 'validator'] },
     { id: 'my-transactions', label: 'Transaksi Saya', icon: List, roles: ['volunteer', 'branch'] },
+    { id: 'reports', label: 'Laporan', icon: BarChart3, roles: ['admin', 'validator', 'branch'] },
     { id: 'branches', label: 'Kantor/Cabang', icon: Building, roles: ['admin'] },
     { id: 'teams', label: 'Tim', icon: UsersRound, roles: ['admin'] }
   ];

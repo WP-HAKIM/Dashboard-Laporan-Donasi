@@ -185,13 +185,16 @@ export const transactionsAPI = {
     date_from?: string;
     date_to?: string;
     date_preset?: string;
+    paginate?: string;
   }) => {
-    const response = await api.get('/transactions', { params });
+    // Default to get all transactions without pagination
+    const requestParams = { ...params, paginate: 'false' };
+    const response = await api.get('/transactions', { params: requestParams });
     return response.data;
   },
   
   getMyTransactions: async () => {
-    const response = await api.get('/my-transactions');
+    const response = await api.get('/my-transactions', { params: { paginate: 'false' } });
     return response.data;
   },
   
@@ -266,6 +269,28 @@ export const dashboardAPI = {
     program_type?: string;
   }) => {
     const response = await api.get('/dashboard', { params });
+    return response.data;
+  },
+};
+
+// Reports API
+export const reportsAPI = {
+  getBranchReports: async (params?: {
+    dateFrom?: string;
+    dateTo?: string;
+    datePreset?: string;
+  }) => {
+    const response = await api.get('/reports/branches', { params });
+    return response.data;
+  },
+  
+  getVolunteerReports: async (params?: {
+    dateFrom?: string;
+    dateTo?: string;
+    datePreset?: string;
+    branch_id?: string;
+  }) => {
+    const response = await api.get('/reports/volunteers', { params });
     return response.data;
   },
 };

@@ -97,38 +97,39 @@ export default function SearchableSelect({
   return (
     <div className={`relative ${className}`} ref={dropdownRef}>
       {/* Main Button */}
-      <button
-        type="button"
-        onClick={handleToggle}
-        disabled={disabled}
-        className={`
-          w-full px-3 py-2 text-left bg-white border border-gray-300 rounded-lg
-          focus:ring-2 focus:ring-blue-500 focus:border-transparent
-          disabled:bg-gray-100 disabled:cursor-not-allowed
-          flex items-center justify-between
-          ${isOpen ? 'ring-2 ring-blue-500 border-transparent' : ''}
-        `}
-      >
-        <span className={`block truncate ${
-          selectedLabel ? 'text-gray-900' : 'text-gray-500'
-        }`}>
-          {selectedLabel || placeholder}
-        </span>
-        <div className="flex items-center space-x-1">
-          {allowClear && value && (
-            <button
-              type="button"
-              onClick={handleClear}
-              className="p-1 hover:bg-gray-100 rounded transition-colors"
-            >
-              <X className="w-4 h-4 text-gray-400" />
-            </button>
-          )}
+      <div className="relative">
+        <button
+          type="button"
+          onClick={handleToggle}
+          disabled={disabled}
+          className={`
+            w-full px-3 py-2 text-left bg-white border border-gray-300 rounded-lg
+            focus:ring-2 focus:ring-blue-500 focus:border-transparent
+            disabled:bg-gray-100 disabled:cursor-not-allowed
+            flex items-center justify-between
+            ${isOpen ? 'ring-2 ring-blue-500 border-transparent' : ''}
+            ${allowClear && value ? 'pr-16' : ''}
+          `}
+        >
+          <span className={`block truncate ${
+            selectedLabel ? 'text-gray-900' : 'text-gray-500'
+          }`}>
+            {selectedLabel || placeholder}
+          </span>
           <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${
             isOpen ? 'transform rotate-180' : ''
           }`} />
-        </div>
-      </button>
+        </button>
+        {allowClear && value && (
+          <button
+            type="button"
+            onClick={handleClear}
+            className="absolute right-8 top-1/2 transform -translate-y-1/2 p-1 hover:bg-gray-100 rounded transition-colors z-10"
+          >
+            <X className="w-4 h-4 text-gray-400" />
+          </button>
+        )}
+      </div>
 
       {/* Dropdown */}
       {isOpen && (

@@ -59,7 +59,12 @@ class Transaction extends Model
     // Accessor untuk transactionDate (camelCase)
     public function getTransactionDateAttribute()
     {
-        return $this->attributes['transaction_date'] ?? null;
+        if (!isset($this->attributes['transaction_date'])) {
+            return null;
+        }
+        
+        // Return as ISO string with timezone to ensure consistent frontend handling
+        return $this->attributes['transaction_date'] ? \Carbon\Carbon::parse($this->attributes['transaction_date'])->toISOString() : null;
     }
 
     public function branch(): BelongsTo

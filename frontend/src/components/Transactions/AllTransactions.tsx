@@ -194,6 +194,106 @@ export default function AllTransactions() {
     loadTransactions();
   }, [filters.datePreset, filters.dateFrom, filters.dateTo, filters.branchId, filters.teamId, filters.status, filters.programType, user]);
 
+  // Note: filters.volunteerName and filters.bank are handled by local filtering in filteredTransactions
+  // They don't need to trigger API calls since the filtering is done client-side
+
+  // Helper function to get volunteer name
+  const getVolunteerName = (transaction: Transaction) => {
+    if (!transaction) return '-';
+    
+    // First check if volunteer object is embedded
+    if (transaction.volunteer?.name) {
+      return transaction.volunteer.name;
+    }
+    
+    // Fallback: find volunteer by ID from multiple possible field names
+    const volunteerId = String(
+      transaction.volunteer_id || 
+      transaction.volunteerId || 
+      transaction.volunteer?.id || 
+      ''
+    );
+    
+    if (volunteerId) {
+      const volunteer = volunteers.find(v => String(v.id) === volunteerId);
+      if (volunteer?.name) {
+        return volunteer.name;
+      }
+    }
+    
+    // Additional fallback: check if there's a volunteer name field directly
+    if (transaction.volunteer_name) {
+      return transaction.volunteer_name;
+    }
+    
+    return '-';
+  };
+
+  // Helper function to get branch name
+  const getBranchName = (transaction: Transaction) => {
+    if (!transaction) return '-';
+    
+    if (transaction.branch?.name) {
+      return transaction.branch.name;
+    }
+    
+    const branchId = transaction.branchId || transaction.branch_id;
+    if (branchId) {
+      const branch = branches.find(b => String(b.id) === String(branchId));
+      return branch?.name || '-';
+    }
+    
+    return '-';
+  };
+
+  // Helper function to get team name
+  const getTeamName = (transaction: Transaction) => {
+    if (!transaction) return '-';
+    
+    // First check if team object is embedded
+    if (transaction.team?.name) {
+      return transaction.team.name;
+    }
+    
+    // Fallback: find team by ID from multiple possible field names
+    const teamId = String(
+      transaction.team_id || 
+      transaction.teamId || 
+      transaction.team?.id || 
+      ''
+    );
+    
+    if (teamId) {
+      const team = teams.find(t => String(t.id) === teamId);
+      if (team?.name) {
+        return team.name;
+      }
+    }
+    
+    // Additional fallback: check if there's a team name field directly
+    if (transaction.team_name) {
+      return transaction.team_name;
+    }
+    
+    return '-';
+  };
+
+  // Helper function to get program name as string for search purposes
+  const getProgramNameString = (transaction: Transaction) => {
+    if (!transaction) return '';
+    
+    const mainProgram = transaction.program?.name || programs.find(p => p.id === transaction.program_id)?.name || '';
+    
+    if (transaction.program_type === 'QURBAN') {
+      const ziswafProgram = transaction.ziswaf_program?.name || 
+        (transaction.ziswaf_program_id ? programs.find(p => p.id === transaction.ziswaf_program_id)?.name : '');
+      
+      return `${mainProgram} ${ziswafProgram}`.trim();
+    }
+    
+    return mainProgram;
+  };
+
   const filteredTransactions = transactions.filter(transaction => {
     if (!transaction) return false;
     
@@ -628,74 +728,7 @@ export default function AllTransactions() {
 
 
 
-  const getBranchName = (transaction: Transaction) => {
-    if (!transaction) return '-';
-    
-    if (transaction.branch?.name) {
-      return transaction.branch.name;
-    }
-    
-    const branchId = transaction.branchId || transaction.branch_id;
-    if (branchId) {
-      const branch = branches.find(b => String(b.id) === String(branchId));
-      return branch?.name || '-';
-    }
-    
-    return '-';
-  };
 
-  const getTeamName = (transaction: Transaction) => {
-    if (!transaction) return '-';
-    
-    // First check if team object is embedded
-    if (transaction.team?.name) {
-      return transaction.team.name;
-    }
-    
-    // Fallback: find team by ID from multiple possible field names
-    const teamId = String(
-      transaction.team_id || 
-      transaction.teamId || 
-      transaction.team?.id || 
-      ''
-    );
-    
-    if (teamId) {
-      const team = teams.find(t => String(t.id) === teamId);
-      if (team?.name) {
-        return team.name;
-      }
-    }
-    
-    // Additional fallback: check if there's a team name field directly
-    if (transaction.team_name) {
-      return transaction.team_name;
-    }
-    
-    console.log('Could not find team name for transaction:', {
-      transaction,
-      teamId,
-      availableTeams: teams.length
-    });
-    
-    return '-';
-  };
-
-  // Function to get program name as string for search purposes
-  const getProgramNameString = (transaction: Transaction) => {
-    if (!transaction) return '';
-    
-    const mainProgram = transaction.program?.name || programs.find(p => p.id === transaction.program_id)?.name || '';
-    
-    if (transaction.program_type === 'QURBAN') {
-      const ziswafProgram = transaction.ziswaf_program?.name || 
-        (transaction.ziswaf_program_id ? programs.find(p => p.id === transaction.ziswaf_program_id)?.name : '');
-      
-      return `${mainProgram} ${ziswafProgram}`.trim();
-    }
-    
-    return mainProgram;
-  };
 
   const getProgramName = (transaction: Transaction) => {
     if (!transaction) return '-';
@@ -723,42 +756,7 @@ export default function AllTransactions() {
     return mainProgram;
   };
 
-  const getVolunteerName = (transaction: Transaction) => {
-    if (!transaction) return '-';
-    
-    // First check if volunteer object is embedded
-    if (transaction.volunteer?.name) {
-      return transaction.volunteer.name;
-    }
-    
-    // Fallback: find volunteer by ID from multiple possible field names
-    const volunteerId = String(
-      transaction.volunteer_id || 
-      transaction.volunteerId || 
-      transaction.volunteer?.id || 
-      ''
-    );
-    
-    if (volunteerId) {
-      const volunteer = volunteers.find(v => String(v.id) === volunteerId);
-      if (volunteer?.name) {
-        return volunteer.name;
-      }
-    }
-    
-    // Additional fallback: check if there's a volunteer name field directly
-    if (transaction.volunteer_name) {
-      return transaction.volunteer_name;
-    }
-    
-    console.log('Could not find volunteer name for transaction:', {
-      transaction,
-      volunteerId,
-      availableVolunteers: volunteers.length
-    });
-    
-    return '-';
-  };
+
 
   const formatDate = (dateString: string) => {
     try {
@@ -771,8 +769,7 @@ export default function AllTransactions() {
         month: 'short',
         day: 'numeric',
         hour: '2-digit',
-        minute: '2-digit',
-        timeZone: 'Asia/Jakarta'
+        minute: '2-digit'
       });
     } catch (error) {
       return '-';
@@ -881,116 +878,7 @@ export default function AllTransactions() {
   
   const uniqueData = getUniqueValues();
 
-  const exportToExcel = () => {
-    try {
-      // Prepare data for export
-      const exportData = filteredTransactions.map((transaction, index) => {
-        const programName = getProgramName(transaction);
-        const isQurban = programName.toLowerCase().includes('qurban');
-        
-        // Calculate regulation amounts
-        let volunteerCommission = 0;
-        let branchCommission = 0;
-        
-        if (transaction.program_type === 'ZISWAF') {
-          const volunteerRate = transaction.ziswaf_volunteer_rate || transaction.volunteer_rate || 0;
-          const branchRate = transaction.ziswaf_branch_rate || transaction.branch_rate || 0;
-          const amount = Number(transaction.amount) || 0;
-          volunteerCommission = amount * volunteerRate / 100;
-          branchCommission = amount * branchRate / 100;
-        } else if (transaction.program_type === 'QURBAN') {
-          if (transaction.ziswaf_program_id) {
-            // QURBAN dengan komponen ZISWAF
-            const qurbanVolunteerRate = transaction.volunteer_rate || 0;
-            const ziswafVolunteerRate = transaction.ziswaf_volunteer_rate || 0;
-            const qurbanBranchRate = transaction.branch_rate || 0;
-            const ziswafBranchRate = transaction.ziswaf_branch_rate || 0;
-            
-            const qurbanAmount = Number(transaction.qurban_amount) || 0;
-            const ziswafAmount = Number(transaction.amount) || 0;
-            
-            volunteerCommission = (qurbanAmount * qurbanVolunteerRate / 100) + (ziswafAmount * ziswafVolunteerRate / 100);
-            branchCommission = (qurbanAmount * qurbanBranchRate / 100) + (ziswafAmount * ziswafBranchRate / 100);
-          } else {
-            // QURBAN tanpa komponen ZISWAF
-            const volunteerRate = transaction.volunteer_rate || 0;
-            const branchRate = transaction.branch_rate || 0;
-            const amount = Number(transaction.amount) || 0;
-            volunteerCommission = amount * volunteerRate / 100;
-            branchCommission = amount * branchRate / 100;
-          }
-        }
-        
-        return {
-          'No': index + 1,
-          'ID Transaksi': transaction.id,
-          'Nama Donatur': transaction.donorName || transaction.donor_name || '-',
-          'Cabang': getBranchName(transaction),
-          'Tim': getTeamName(transaction),
-          'Relawan': getVolunteerName(transaction),
-          'Program': programName,
-          'Jenis Program': isQurban ? 'QURBAN' : 'ZISWAF',
-          'Regulasi Relawan': volunteerCommission,
-          'Regulasi Cabang': branchCommission,
-          'Nominal': transaction.amount || 0,
-          'Nominal Qurban': isQurban && transaction.qurban_amount ? transaction.qurban_amount : '-',
-          'Total Nominal': isQurban && transaction.qurban_amount ? 
-            (transaction.amount || 0) + (transaction.qurban_amount || 0) : 
-            (transaction.amount || 0),
-          'Bank': transaction.transferMethod || transaction.transfer_method || '-',
-          'Status': getStatusLabel(transaction.status),
-          'Alasan': transaction.statusReason || transaction.status_reason || '-',
-          'Tanggal Transaksi': formatDate(transaction.transaction_date || transaction.transactionDate || transaction.created_at || transaction.createdAt),
-          'Tanggal Update': formatDate(transaction.updated_at || transaction.updatedAt)
-        };
-      });
 
-      // Create workbook and worksheet
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.json_to_sheet(exportData);
-
-      // Set column widths
-      const colWidths = [
-        { wch: 5 },   // No
-        { wch: 12 },  // ID Transaksi
-        { wch: 20 },  // Nama Donatur
-        { wch: 15 },  // Cabang
-        { wch: 15 },  // Tim
-        { wch: 20 },  // Relawan
-        { wch: 25 },  // Program
-        { wch: 12 },  // Jenis Program
-        { wch: 15 },  // Regulasi Relawan
-        { wch: 15 },  // Regulasi Cabang
-        { wch: 15 },  // Nominal
-        { wch: 15 },  // Nominal Qurban
-        { wch: 15 },  // Total Nominal
-        { wch: 15 },  // Bank
-        { wch: 15 },  // Status
-        { wch: 20 },  // Alasan
-        { wch: 18 },  // Tanggal Transaksi
-        { wch: 18 }   // Tanggal Update
-      ];
-      ws['!cols'] = colWidths;
-
-      // Add worksheet to workbook
-      XLSX.utils.book_append_sheet(wb, ws, 'Transaksi');
-
-      // Generate filename with current date
-      const now = new Date();
-      const dateStr = now.toISOString().split('T')[0];
-      const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
-      const filename = `Transaksi_${dateStr}_${timeStr}.xlsx`;
-
-      // Save file
-      XLSX.writeFile(wb, filename);
-      
-      // Show success message
-      alert(`Data berhasil diekspor ke file: ${filename}`);
-    } catch (error) {
-      console.error('Error exporting to Excel:', error);
-      alert('Terjadi kesalahan saat mengekspor data ke Excel');
-    }
-  };
 
   // Download Excel Template
   const downloadTemplate = () => {
@@ -1452,25 +1340,11 @@ export default function AllTransactions() {
         </div>
         <div className="flex space-x-3">
           <button
-            onClick={downloadTemplate}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center space-x-2"
-          >
-            <FileDown className="w-5 h-5" />
-            <span>Download Template</span>
-          </button>
-          <button
             onClick={() => setIsImportModalOpen(true)}
             className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 flex items-center space-x-2"
           >
             <Upload className="w-5 h-5" />
             <span>Import Excel</span>
-          </button>
-          <button
-            onClick={exportToExcel}
-            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center space-x-2"
-          >
-            <Download className="w-5 h-5" />
-            <span>Export Excel</span>
           </button>
         </div>
       </div>
@@ -2633,6 +2507,16 @@ export default function AllTransactions() {
                       <li>• Format tanggal: DD/MM/YYYY atau DD/MM/YYYY HH:MM:SS</li>
                       <li>• Maksimal 1000 baris per import</li>
                     </ul>
+                  </div>
+                  
+                  <div className="mb-6">
+                    <button
+                      onClick={downloadTemplate}
+                      className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center space-x-2 w-full justify-center"
+                    >
+                      <FileDown className="w-5 h-5" />
+                      <span>Download Template Excel</span>
+                    </button>
                   </div>
                   
                   <div className="space-y-4">

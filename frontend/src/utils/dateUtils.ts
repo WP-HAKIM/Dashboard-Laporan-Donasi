@@ -1,34 +1,36 @@
 // Utility functions for handling dates with Indonesian timezone (UTC+7)
 
 /**
- * Converts a date to Indonesian timezone (UTC+7) and formats it for datetime-local input
+ * Converts a date to Indonesian timezone and formats it for datetime-local input
  * @param date - Date string, Date object, or null/undefined
  * @returns Formatted date string in YYYY-MM-DDTHH:MM format for datetime-local input
  */
 export const formatDateForInput = (date: string | Date | null | undefined): string => {
   if (!date) {
-    // Return current time in Indonesian timezone
+    // Return current time in local timezone
     return formatDateForInput(new Date());
   }
   
   const dateObj = typeof date === 'string' ? new Date(date) : date;
   
-  // Convert to Indonesian timezone (UTC+7)
-  const indonesianTime = new Date(dateObj.getTime() + (7 * 60 * 60 * 1000));
+  // Convert to Indonesian timezone (UTC+7) for consistent display
+  // Use local time methods to get the actual local time representation
+  const year = dateObj.getFullYear();
+  const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const day = String(dateObj.getDate()).padStart(2, '0');
+  const hours = String(dateObj.getHours()).padStart(2, '0');
+  const minutes = String(dateObj.getMinutes()).padStart(2, '0');
   
   // Format for datetime-local input (YYYY-MM-DDTHH:MM)
-  return indonesianTime.toISOString().slice(0, 16);
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
 /**
- * Gets current date and time in Indonesian timezone for datetime-local input
+ * Gets current date and time in local timezone for datetime-local input
  * @returns Current date/time formatted for datetime-local input
  */
 export const getCurrentIndonesianDateTime = (): string => {
-  const now = new Date();
-  // Add 7 hours for Indonesian timezone (UTC+7)
-  const indonesianTime = new Date(now.getTime() + (7 * 60 * 60 * 1000));
-  return indonesianTime.toISOString().slice(0, 16);
+  return formatDateForInput(new Date());
 };
 
 /**
@@ -39,9 +41,11 @@ export const getCurrentIndonesianDateTime = (): string => {
 export const convertInputToISO = (datetimeLocal: string): string => {
   if (!datetimeLocal) return new Date().toISOString();
   
-  // datetime-local gives us local time, just convert to ISO
-  const localDate = new Date(datetimeLocal);
-  return localDate.toISOString();
+  // datetime-local gives us time without timezone info
+  // We treat it as UTC time directly since we're not doing timezone conversion
+  const utcTime = new Date(datetimeLocal + 'Z');
+  
+  return utcTime.toISOString();
 };
 
 /**
@@ -59,7 +63,6 @@ export const formatDateForDisplay = (date: string | Date | null | undefined): st
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'Asia/Jakarta'
+    minute: '2-digit'
   });
 };
