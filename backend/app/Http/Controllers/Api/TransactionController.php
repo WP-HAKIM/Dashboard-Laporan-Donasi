@@ -299,7 +299,7 @@ class TransactionController extends Controller
     }
 
     /**
-     * Get transactions by current user (volunteer)
+     * Get transactions by current user (volunteer/branch)
      * Uses same preload as dashboard for consistency
      */
     public function myTransactions(Request $request)
@@ -307,11 +307,16 @@ class TransactionController extends Controller
         $user = $request->user();
         
         // Use same preload as dashboard for consistency
-        $query = Transaction::with(['branch', 'team', 'volunteer', 'program', 'validator', 'paymentMethod'])
-            ->where('volunteer_id', $user->id);
-            
-        // Note: Removed additional branch_id and team_id filters as they may be too restrictive
-        // The volunteer_id filter should be sufficient for myTransactions
+        $query = Transaction::with(['branch', 'team', 'volunteer', 'program', 'validator', 'paymentMethod']);
+        
+        // Filter based on user role
+        if ($user->role === 'branch' && $user->branch_id) {
+            // For branch role, show all transactions from their branch
+            $query->where('branch_id', $user->branch_id);
+        } else {
+            // For volunteer and other roles, show only their own transactions
+            $query->where('volunteer_id', $user->id);
+        }
         
         // Apply additional filters if provided
         if ($request->has('status')) {
@@ -382,10 +387,18 @@ class TransactionController extends Controller
     {
         $user = $request->user();
         
-        // Base query for user's transactions (remove branch and team filters)
+        // Base query for user's transactions
         $query = Transaction::with(['program'])
-            ->where('volunteer_id', $user->id)
             ->where('status', 'valid'); // Only validated transactions
+        
+        // Filter based on user role
+        if ($user->role === 'branch' && $user->branch_id) {
+            // For branch role, show statistics from all transactions in their branch
+            $query->where('branch_id', $user->branch_id);
+        } else {
+            // For volunteer and other roles, show only their own transaction statistics
+            $query->where('volunteer_id', $user->id);
+        }
         
         $transactions = $query->get();
         

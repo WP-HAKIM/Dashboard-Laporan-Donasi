@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Building, Users, TrendingUp, CheckCircle, Clock, X, Calendar, Filter, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { reportsAPI, transactionsAPI } from '../../services/api';
+import { useAuth } from '../../hooks/useAuth';
 import Loader from '../Common/Loader';
 
 interface BranchReport {
@@ -30,7 +31,8 @@ interface VolunteerReport {
 }
 
 export default function ReportsView() {
-  const [activeTab, setActiveTab] = useState<'branch' | 'volunteer'>('branch');
+  const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState<'branch' | 'volunteer'>(user?.role === 'branch' ? 'volunteer' : 'branch');
   const [branchReports, setBranchReports] = useState<BranchReport[]>([]);
   const [volunteerReports, setVolunteerReports] = useState<VolunteerReport[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -52,9 +54,17 @@ export default function ReportsView() {
     fetchReports();
   }, [activeTab, datePreset, dateFrom, dateTo]);
 
-  // Separate effect for selectedBranch that only affects volunteer reports
+  // Effect to refetch data when user changes (important for branch role users)
   useEffect(() => {
-    if (activeTab === 'volunteer') {
+    if (user) {
+      fetchReports();
+    }
+  }, [user]);
+
+  // Separate effect for selectedBranch that only affects volunteer reports
+  // Skip for branch role users as they are automatically filtered by their branch
+  useEffect(() => {
+    if (activeTab === 'volunteer' && user?.role !== 'branch') {
       fetchReports();
     }
   }, [selectedBranch]);
@@ -87,7 +97,12 @@ export default function ReportsView() {
           setError(response.message || 'Gagal mengambil laporan cabang');
         }
       } else {
-        if (selectedBranch) params.branchId = selectedBranch;
+        // For branch role users, automatically filter by their branch
+        if (user?.role === 'branch' && user?.branch_id) {
+          params.branchId = user.branch_id;
+        } else if (selectedBranch) {
+          params.branchId = selectedBranch;
+        }
         const response = await reportsAPI.getVolunteerReports(params);
         if (response.success) {
           setVolunteerReports(response.data);
@@ -379,17 +394,20 @@ export default function ReportsView() {
       <div className="mb-6">
         <div className="border-b border-gray-200">
           <nav className="-mb-px flex space-x-8">
-            <button
-              onClick={() => setActiveTab('branch')}
-              className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'branch'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <Building className="inline-block w-4 h-4 mr-2" />
-              Laporan Cabang
-            </button>
+            {/* Hide branch tab for branch role users */}
+            {user?.role !== 'branch' && (
+              <button
+                onClick={() => setActiveTab('branch')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'branch'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <Building className="inline-block w-4 h-4 mr-2" />
+                Laporan Cabang
+              </button>
+            )}
             <button
               onClick={() => setActiveTab('volunteer')}
               className={`py-2 px-1 border-b-2 font-medium text-sm ${
@@ -451,16 +469,19 @@ export default function ReportsView() {
         {/* Other Filters */}
         {activeTab === 'volunteer' && (
           <div className="flex flex-wrap items-center gap-4">
-            <select
-              value={selectedBranch}
-              onChange={(e) => setSelectedBranch(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="">Semua Cabang</option>
-              {uniqueBranches.map(branch => (
-                <option key={branch} value={branch}>{branch}</option>
-              ))}
-            </select>
+            {/* Hide branch filter for branch role users */}
+            {user?.role !== 'branch' && (
+              <select
+                value={selectedBranch}
+                onChange={(e) => setSelectedBranch(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="">Semua Cabang</option>
+                {uniqueBranches.map(branch => (
+                  <option key={branch} value={branch}>{branch}</option>
+                ))}
+              </select>
+            )}
             
             <select
               value={selectedTeam}

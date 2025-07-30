@@ -576,13 +576,89 @@ export default function MyTransactions() {
 
 
 
-  const totalAmount = filteredTransactions
-    .filter(t => t.status === 'valid')
-    .reduce((sum, t) => {
-      const regularAmount = Number(t.amount) || 0;
-      const qurbanAmount = Number(t.qurban_amount) || 0;
-      return sum + regularAmount + qurbanAmount;
-    }, 0);
+  // Calculate statistics based on filtered transactions
+  const validTransactions = filteredTransactions.filter(t => t.status === 'valid');
+  
+  const totalAmount = validTransactions.reduce((sum, t) => {
+    const regularAmount = Number(t.amount) || 0;
+    const qurbanAmount = Number(t.qurban_amount) || 0;
+    return sum + regularAmount + qurbanAmount;
+  }, 0);
+
+  // Calculate ZISWAF total from filtered transactions
+  const ziswafTotal = validTransactions.reduce((sum, t) => {
+    let ziswafAmount = 0;
+    // ZISWAF transactions
+    if (t.program_type === 'ZISWAF') {
+      ziswafAmount += Number(t.amount) || 0;
+    }
+    // QURBAN transactions with ziswaf_program_id
+    if (t.program_type === 'QURBAN' && t.ziswaf_program_id) {
+      ziswafAmount += Number(t.amount) || 0;
+    }
+    return sum + ziswafAmount;
+  }, 0);
+
+  // Calculate QURBAN total from filtered transactions
+  const qurbanTotal = validTransactions
+    .filter(t => t.program_type === 'QURBAN')
+    .reduce((sum, t) => sum + (Number(t.qurban_amount) || 0), 0);
+
+  // Calculate Volunteer Regulation from filtered transactions
+  const volunteerRegulation = validTransactions.reduce((sum, t) => {
+    let regulation = 0;
+    
+    // For ZISWAF transactions, use volunteer_rate
+    if (t.program_type === 'ZISWAF' && t.amount > 0) {
+      const volunteerRate = Number(t.volunteer_rate) || 0;
+      regulation += (Number(t.amount) || 0) * (volunteerRate / 100);
+    }
+    
+    // For QURBAN transactions
+    if (t.program_type === 'QURBAN') {
+      // QURBAN amount uses volunteer_rate from QURBAN program
+      if (t.qurban_amount > 0) {
+        const volunteerRate = Number(t.volunteer_rate) || 0;
+        regulation += (Number(t.qurban_amount) || 0) * (volunteerRate / 100);
+      }
+      
+      // ZISWAF amount (when ziswaf_program_id exists) uses ziswaf_volunteer_rate
+      if (t.amount > 0 && t.ziswaf_program_id) {
+        const ziswafVolunteerRate = Number(t.ziswaf_volunteer_rate) || 0;
+        regulation += (Number(t.amount) || 0) * (ziswafVolunteerRate / 100);
+      }
+    }
+    
+    return sum + regulation;
+  }, 0);
+
+  // Calculate Branch Regulation from filtered transactions
+  const branchRegulation = validTransactions.reduce((sum, t) => {
+    let regulation = 0;
+    
+    // For ZISWAF transactions, use branch_rate or ziswaf_branch_rate
+    if (t.program_type === 'ZISWAF' && t.amount > 0) {
+      const branchRate = Number(t.ziswaf_branch_rate) || Number(t.branch_rate) || 0;
+      regulation += (Number(t.amount) || 0) * (branchRate / 100);
+    }
+    
+    // For QURBAN transactions
+    if (t.program_type === 'QURBAN') {
+      // QURBAN amount uses branch_rate from QURBAN program
+      if (t.qurban_amount > 0) {
+        const branchRate = Number(t.branch_rate) || 0;
+        regulation += (Number(t.qurban_amount) || 0) * (branchRate / 100);
+      }
+      
+      // ZISWAF amount (when ziswaf_program_id exists) uses ziswaf_branch_rate
+      if (t.amount > 0 && t.ziswaf_program_id) {
+        const ziswafBranchRate = Number(t.ziswaf_branch_rate) || 0;
+        regulation += (Number(t.amount) || 0) * (ziswafBranchRate / 100);
+      }
+    }
+    
+    return sum + regulation;
+  }, 0);
 
   const pendingCount = filteredTransactions.filter(t => t.status === 'pending').length;
   const validCount = filteredTransactions.filter(t => t.status === 'valid').length;
@@ -641,7 +717,7 @@ export default function MyTransactions() {
             <div>
               <p className="text-xs font-medium text-gray-600">Total Ziswaf</p>
               <p className="text-lg font-bold text-emerald-600 mt-1">
-                {formatCurrency(myTransactionsStats?.ziswaf_total || 0)}
+                {formatCurrency(ziswafTotal)}
               </p>
             </div>
             <div className="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center">
@@ -655,7 +731,7 @@ export default function MyTransactions() {
             <div>
               <p className="text-xs font-medium text-gray-600">Total Donasi Qurban</p>
               <p className="text-lg font-bold text-orange-600 mt-1">
-                {formatCurrency(myTransactionsStats?.qurban_total || 0)}
+                {formatCurrency(qurbanTotal)}
               </p>
             </div>
             <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
@@ -668,13 +744,17 @@ export default function MyTransactions() {
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium text-gray-600">Regulasi Relawan</p>
-              <p className="text-lg font-bold text-teal-600 mt-1">
-                {formatCurrency(myTransactionsStats?.volunteer_regulation || 0)}
+              <p className="text-xs font-medium text-gray-600">
+                {user?.role === 'branch' ? 'Regulasi Cabang' : 'Regulasi Relawan'}
               </p>
+              <p className="text-lg font-bold text-teal-600 mt-1">
+                 {user?.role === 'branch' ? formatCurrency(branchRegulation) : formatCurrency(volunteerRegulation)}
+               </p>
             </div>
             <div className="w-10 h-10 bg-teal-100 rounded-full flex items-center justify-center">
-              <span className="text-teal-600 font-bold text-sm">R</span>
+              <span className="text-teal-600 font-bold text-sm">
+                {user?.role === 'branch' ? 'C' : 'R'}
+              </span>
             </div>
           </div>
         </div>
@@ -910,33 +990,47 @@ export default function MyTransactions() {
                   <td className="py-4 px-6 font-medium text-blue-600">
                     {(() => {
                       let volunteerCommission = 0;
+                      let branchCommission = 0;
                       
                       if (transaction.program_type === 'ZISWAF') {
                         const volunteerRate = transaction.ziswaf_volunteer_rate || transaction.volunteer_rate || 0;
+                        const branchRate = transaction.ziswaf_branch_rate || transaction.branch_rate || 0;
                         const amount = Number(transaction.amount) || 0;
                         volunteerCommission = amount * volunteerRate / 100;
+                        branchCommission = amount * branchRate / 100;
                       } else if (transaction.program_type === 'QURBAN') {
                         if (transaction.ziswaf_program_id) {
                           // QURBAN dengan komponen ZISWAF
                           const qurbanVolunteerRate = transaction.volunteer_rate || 0;
                           const ziswafVolunteerRate = transaction.ziswaf_volunteer_rate || 0;
+                          const qurbanBranchRate = transaction.branch_rate || 0;
+                          const ziswafBranchRate = transaction.ziswaf_branch_rate || 0;
                           
                           const qurbanAmount = Number(transaction.qurban_amount) || 0;
                           const ziswafAmount = Number(transaction.amount) || 0;
                           
                           volunteerCommission = (qurbanAmount * qurbanVolunteerRate / 100) + (ziswafAmount * ziswafVolunteerRate / 100);
+                          branchCommission = (qurbanAmount * qurbanBranchRate / 100) + (ziswafAmount * ziswafBranchRate / 100);
                         } else {
                           // QURBAN tanpa komponen ZISWAF
                           const volunteerRate = transaction.volunteer_rate || 0;
+                          const branchRate = transaction.branch_rate || 0;
                           const amount = Number(transaction.qurban_amount) || 0;
                           volunteerCommission = amount * volunteerRate / 100;
+                          branchCommission = amount * branchRate / 100;
                         }
                       }
                       
                       return (
-                        <div className="text-sm">
-                          <span className="text-gray-600">Relawan:</span>
-                          <span className="ml-1 font-medium">{formatCurrency(volunteerCommission)}</span>
+                        <div className="space-y-1">
+                          <div className="text-sm">
+                            <span className="text-gray-600">Relawan: </span>
+                            <span className="font-medium">{formatCurrency(volunteerCommission)}</span>
+                          </div>
+                          <div className="text-sm">
+                            <span className="text-gray-600">Cabang: </span>
+                            <span className="font-medium">{formatCurrency(branchCommission)}</span>
+                          </div>
                         </div>
                       );
                     })()}

@@ -335,6 +335,7 @@ export default function DashboardView() {
             <thead className="bg-gray-50">
               <tr>
                 <th className="text-left py-3 px-4 font-medium text-gray-700">Donatur</th>
+                <th className="text-left py-3 px-4 font-medium text-gray-700">Relawan</th>
                 <th className="text-left py-3 px-4 font-medium text-gray-700">Program</th>
                 <th className="text-left py-3 px-4 font-medium text-gray-700">Nominal</th>
                 <th className="text-left py-3 px-4 font-medium text-gray-700">Status</th>
@@ -346,6 +347,7 @@ export default function DashboardView() {
                 return (
                   <tr key={transaction.id} className="border-b border-gray-100">
                     <td className="py-3 px-4">{transaction.donor_name}</td>
+                    <td className="py-3 px-4">{transaction.volunteer_name || '-'}</td>
                     <td className="py-3 px-4">{transaction.program_name || '-'}</td>
                     <td className="py-3 px-4 font-medium">
                       {formatCurrency(transaction.amount || 0)}
@@ -379,6 +381,7 @@ export default function DashboardView() {
               <div className="flex items-start justify-between mb-3">
                 <div>
                   <h3 className="font-medium text-gray-900">{transaction.donor_name}</h3>
+                  <p className="text-sm text-gray-600">Relawan: {transaction.volunteer_name || '-'}</p>
                   <p className="text-sm text-gray-600">{transaction.program_name || '-'}</p>
                 </div>
                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${

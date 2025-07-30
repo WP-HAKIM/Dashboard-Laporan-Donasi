@@ -391,7 +391,7 @@ export default function DashboardFilter({ currentFilter, onFilterChange, isLoadi
         </div>
         
         {/* Advanced Filters */}
-        {userRole !== 'volunteer' && (
+        {userRole !== 'volunteer' && userRole !== 'branch' && (
           <div className="mt-4 pt-4 border-t border-gray-200">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* Branch Filter */}
@@ -491,7 +491,7 @@ export default function DashboardFilter({ currentFilter, onFilterChange, isLoadi
          )}
         
         {/* Active Filters Display */}
-        {(currentFilter.filter_type !== 'all' || (userRole !== 'volunteer' && (currentFilter.branch_id || currentFilter.team_id || currentFilter.volunteer_id || currentFilter.program_name))) && (
+        {(currentFilter.filter_type !== 'all' || (userRole !== 'volunteer' && userRole !== 'branch' && (currentFilter.branch_id || currentFilter.team_id || currentFilter.volunteer_id || currentFilter.program_name))) && (
           <div className="mt-4 pt-4 border-t border-gray-200">
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <Calendar className="w-4 h-4 text-gray-500" />
@@ -504,29 +504,29 @@ export default function DashboardFilter({ currentFilter, onFilterChange, isLoadi
                 </span>
               )}
               
-              {/* Branch Filter - Hidden for volunteers */}
-              {userRole !== 'volunteer' && currentFilter.branch_id && (
+              {/* Branch Filter - Hidden for volunteers and branch users */}
+              {userRole !== 'volunteer' && userRole !== 'branch' && currentFilter.branch_id && (
                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
                   Cabang: {branches.find(b => String(b.id) === currentFilter.branch_id)?.name || currentFilter.branch_id}
                 </span>
               )}
               
-              {/* Team Filter - Hidden for volunteers */}
-              {userRole !== 'volunteer' && currentFilter.team_id && (
+              {/* Team Filter - Hidden for volunteers and branch users */}
+              {userRole !== 'volunteer' && userRole !== 'branch' && currentFilter.team_id && (
                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
                   Tim: {teams.find(t => String(t.id) === currentFilter.team_id)?.name || currentFilter.team_id}
                 </span>
               )}
               
-              {/* Volunteer Filter - Hidden for volunteers */}
-              {userRole !== 'volunteer' && currentFilter.volunteer_id && (
+              {/* Volunteer Filter - Hidden for volunteers and branch users */}
+              {userRole !== 'volunteer' && userRole !== 'branch' && currentFilter.volunteer_id && (
                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
                   Relawan: {currentFilter.volunteer_id}
                 </span>
               )}
               
-              {/* Program Filter - Hidden for volunteers */}
-              {userRole !== 'volunteer' && currentFilter.program_name && (
+              {/* Program Filter - Hidden for volunteers and branch users */}
+              {userRole !== 'volunteer' && userRole !== 'branch' && currentFilter.program_name && (
                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-pink-100 text-pink-800">
                   Program: {currentFilter.program_name}
                 </span>
