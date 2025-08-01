@@ -327,13 +327,38 @@ class TransactionController extends Controller
             $query->where('program_type', $request->program_type);
         }
         
-        // Filter by date range
+        // Filter by date range (using created_at)
         if ($request->has('date_from')) {
             $query->whereDate('created_at', '>=', $request->date_from);
         }
         
         if ($request->has('date_to')) {
             $query->whereDate('created_at', '<=', $request->date_to);
+        }
+        
+        // Filter by date preset (current month, 1 month back, 2 months back)
+        if ($request->has('date_preset')) {
+            switch ($request->date_preset) {
+                case 'current_month':
+                    $query->whereMonth('created_at', now()->month)
+                          ->whereYear('created_at', now()->year);
+                    break;
+                case '1_month_back':
+                    $startDate = now()->subMonth()->startOfMonth();
+                    $endDate = now()->subMonth()->endOfMonth();
+                    $query->whereBetween('created_at', [$startDate, $endDate]);
+                    break;
+                case '2_months_back':
+                    $startDate = now()->subMonths(2)->startOfMonth();
+                    $endDate = now()->subMonths(2)->endOfMonth();
+                    $query->whereBetween('created_at', [$startDate, $endDate]);
+                    break;
+                case 'last_3_months':
+                    $startDate = now()->subMonths(2)->startOfMonth();
+                    $endDate = now()->endOfMonth();
+                    $query->whereBetween('created_at', [$startDate, $endDate]);
+                    break;
+            }
         }
         
         // Check if pagination is requested
@@ -522,15 +547,7 @@ class TransactionController extends Controller
                         ]
                     ], 422);
                 }
-                if (empty($transactionData['qurbanAmount']) || !is_numeric($transactionData['qurbanAmount']) || $transactionData['qurbanAmount'] <= 0) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Data tidak valid',
-                        'errors' => [
-                            "transactions.{$index}.qurbanAmount" => ['The transactions.' . $index . '.qurbanAmount field is required and must be a positive number when program type is QURBAN.']
-                        ]
-                    ], 422);
-                }
+                // Qurban amount validation removed as it's now handled in frontend
             }
         }
 
@@ -575,29 +592,30 @@ class TransactionController extends Controller
                 $transaction->status = $transactionData['status'];
                 $transaction->status_reason = $transactionData['statusReason'] ?? null;
 
-                // Set QURBAN specific fields
+                // Set program specific fields and rates
                 if ($transactionData['programType'] === 'QURBAN') {
+                    // Handle QURBAN transactions
                     $transaction->qurban_owner_name = $transactionData['qurbanOwnerName'];
-                    $transaction->qurban_amount = $transactionData['qurbanAmount'];
+                    // Set qurban_amount from the imported data
+                    if (isset($transactionData['qurbanAmount']) && $transactionData['qurbanAmount'] > 0) {
+                        $transaction->qurban_amount = $transactionData['qurbanAmount'];
+                    }
+                    $transaction->volunteer_rate = $program->volunteer_rate;
+                    $transaction->branch_rate = $program->branch_rate;
+                    
+                    // If QURBAN has additional ZISWAF program
+                    if (!empty($transactionData['ziswafProgramId'])) {
+                        $ziswafProgram = Program::find($transactionData['ziswafProgramId']);
+                        if ($ziswafProgram) {
+                            $transaction->ziswaf_program_id = $transactionData['ziswafProgramId'];
+                            $transaction->ziswaf_volunteer_rate = $ziswafProgram->volunteer_rate;
+                            $transaction->ziswaf_branch_rate = $ziswafProgram->branch_rate;
+                        }
+                    }
                 } else {
-                    $transaction->ziswaf_program_id = $transactionData['programId'];
-                }
-
-                // Set rates from program
-                if ($program->volunteer_rate !== null) {
-                    if ($transactionData['programType'] === 'ZISWAF') {
-                        $transaction->ziswaf_volunteer_rate = $program->volunteer_rate;
-                    } else {
-                        $transaction->qurban_volunteer_rate = $program->volunteer_rate;
-                    }
-                }
-
-                if ($program->branch_rate !== null) {
-                    if ($transactionData['programType'] === 'ZISWAF') {
-                        $transaction->ziswaf_branch_rate = $program->branch_rate;
-                    } else {
-                        $transaction->qurban_branch_rate = $program->branch_rate;
-                    }
+                    // Handle ZISWAF transactions - no need for ziswaf_program_id as it's already in program_id
+                    $transaction->volunteer_rate = $program->volunteer_rate;
+                    $transaction->branch_rate = $program->branch_rate;
                 }
 
                 $transaction->save();

@@ -9,6 +9,7 @@ import { usePaymentMethods } from '../../hooks/usePaymentMethods';
 import { useUsers } from '../../hooks/useUsers';
 import Loader from '../Common/Loader';
 import SearchableSelect from '../Common/SearchableSelect';
+import { showError, showSuccess } from '../../utils/sweetAlert';
 
 export default function ValidationView() {
   const { transactions, isLoading, error, validateTransaction, fetchTransactions } = useTransactions();
@@ -154,14 +155,14 @@ export default function ValidationView() {
       // Reset error state when opening new image
       setImageLoadError(prev => ({ ...prev, [transaction.id]: false }));
     } else {
-      alert('Tidak ada bukti gambar untuk transaksi ini');
+      showError('Tidak Ada Bukti', 'Tidak ada bukti gambar untuk transaksi ini');
     }
   };
 
   const handleImageError = (transactionId: string) => {
     setImageLoadError(prev => ({ ...prev, [transactionId]: true }));
     console.error('Error loading image for transaction:', transactionId);
-    alert('Gagal memuat gambar bukti transaksi');
+    showError('Gagal Memuat Gambar', 'Gagal memuat gambar bukti transaksi');
     setShowImageModal(false);
   };
 
@@ -221,7 +222,7 @@ export default function ValidationView() {
 
   const handleDateRangeSubmit = () => {
     if (tempDateTo && tempDateFrom && new Date(tempDateTo) < new Date(tempDateFrom)) {
-      alert('Tanggal akhir tidak boleh lebih awal dari tanggal mulai');
+      showError('Tanggal Tidak Valid', 'Tanggal akhir tidak boleh lebih awal dari tanggal mulai');
       return;
     }
     
@@ -253,7 +254,7 @@ export default function ValidationView() {
     if (!selectedTransaction) return;
 
     if (validationAction === 'other' && !validationReason.trim()) {
-      alert('Harap isi alasan untuk status "Lainnya"');
+      showError('Data Tidak Lengkap', 'Harap isi alasan untuk status "Lainnya"');
       return;
     }
 
@@ -288,10 +289,10 @@ export default function ValidationView() {
       setSelectedTransaction(null);
       setValidationAction('');
       setValidationReason('');
-      alert('Transaksi berhasil divalidasi!');
+      showSuccess('Berhasil!', 'Transaksi berhasil divalidasi!');
     } catch (error) {
       console.error('Error validating transaction:', error);
-      alert(`Gagal memvalidasi transaksi: ${error instanceof Error ? error.message : 'Silakan coba lagi.'}`);
+      showError('Gagal Validasi', `Gagal memvalidasi transaksi: ${error instanceof Error ? error.message : 'Silakan coba lagi.'}`);
     } finally {
       setIsSubmitting(false);
     }

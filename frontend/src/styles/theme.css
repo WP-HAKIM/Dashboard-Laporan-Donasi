@@ -1,0 +1,66 @@
+:root {
+  --primary-color: #2563eb;
+  --secondary-color: #3b82f6;
+  --background-color: #f9fafb;
+  --text-color: #111827;
+  --sidebar-color: #ffffff;
+}
+
+/* Apply theme variables to elements */
+.bg-primary {
+  background-color: var(--primary-color) !important;
+}
+
+.text-primary {
+  color: var(--primary-color) !important;
+}
+
+.border-primary {
+  border-color: var(--primary-color) !important;
+}
+
+.bg-secondary {
+  background-color: var(--secondary-color) !important;
+}
+
+.text-secondary {
+  color: var(--secondary-color) !important;
+}
+
+.border-secondary {
+  border-color: var(--secondary-color) !important;
+}
+
+/* Apply theme to specific components */
+.bg-blue-600 {
+  background-color: var(--primary-color);
+}
+
+.text-blue-600 {
+  color: var(--primary-color);
+}
+
+.border-blue-600 {
+  border-color: var(--primary-color);
+}
+
+.hover\:bg-blue-700:hover {
+  background-color: var(--primary-color);
+  filter: brightness(0.9);
+}
+
+.focus\:ring-blue-500:focus {
+  --tw-ring-color: var(--secondary-color);
+}
+
+.bg-blue-500 {
+  background-color: var(--secondary-color);
+}
+
+.text-blue-500 {
+  color: var(--secondary-color);
+}
+
+.border-blue-500 {
+  border-color: var(--secondary-color);
+}

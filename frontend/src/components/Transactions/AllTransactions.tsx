@@ -13,6 +13,7 @@ import { transactionsAPI } from '../../services/api';
 import Loader from '../Common/Loader';
 import SearchableSelect from '../Common/SearchableSelect';
 import { formatDateForInput, convertInputToISO } from '../../utils/dateUtils';
+import { showError, showSuccess, showConfirm, showConfirmDelete, toastSuccess, toastError } from '../../utils/sweetAlert';
 
 export default function AllTransactions() {
   const { user } = useAuth();
@@ -35,7 +36,7 @@ export default function AllTransactions() {
     bank: ''
   });
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(25);
   const [isMobile, setIsMobile] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -122,7 +123,8 @@ export default function AllTransactions() {
     const actionText = bulkAction === 'delete' ? 'menghapus' : 'mengubah status';
     const confirmMessage = `Apakah Anda yakin ingin ${actionText} ${selectedTransactions.length} transaksi yang dipilih?`;
     
-    if (!window.confirm(confirmMessage)) return;
+    const result = await showConfirm('Konfirmasi Aksi Bulk', confirmMessage);
+    if (!result.isConfirmed) return;
 
     setIsBulkProcessing(true);
     try {
@@ -131,11 +133,11 @@ export default function AllTransactions() {
         for (const transactionId of selectedTransactions) {
           await deleteTransaction(Number(transactionId));
         }
-        alert(`${selectedTransactions.length} transaksi berhasil dihapus`);
+        showSuccess('Berhasil!', `${selectedTransactions.length} transaksi berhasil dihapus`);
       } else {
         // Update status of selected transactions using bulk update
         await bulkUpdateStatus(selectedTransactions, bulkAction);
-        alert(`Status ${selectedTransactions.length} transaksi berhasil diubah`);
+        showSuccess('Berhasil!', `Status ${selectedTransactions.length} transaksi berhasil diubah`);
       }
       
       // Reset selections
@@ -158,7 +160,7 @@ export default function AllTransactions() {
       await fetchTransactions(params);
     } catch (error: any) {
       console.error('Bulk action error:', error);
-      alert('Terjadi kesalahan: ' + (error.response?.data?.message || error.message));
+      showError('Terjadi Kesalahan', error.response?.data?.message || error.message);
     } finally {
       setIsBulkProcessing(false);
     }
@@ -495,14 +497,14 @@ export default function AllTransactions() {
       // Reset error state when opening new image
       setImageLoadError(prev => ({ ...prev, [transaction.id]: false }));
     } else {
-      alert('Tidak ada bukti gambar untuk transaksi ini');
+      showError('Tidak Ada Bukti', 'Tidak ada bukti gambar untuk transaksi ini');
     }
   };
 
   const handleImageError = (transactionId: string) => {
     setImageLoadError(prev => ({ ...prev, [transactionId]: true }));
     console.error('Error loading image for transaction:', transactionId);
-    alert('Gagal memuat gambar bukti transaksi');
+    showError('Gagal Memuat Gambar', 'Gagal memuat gambar bukti transaksi');
     setShowImageModal(false);
   };
 
@@ -573,10 +575,15 @@ export default function AllTransactions() {
     const transaction = transactions.find(t => t.id === id);
     const donorName = transaction?.donorName || transaction?.donor_name || 'Tidak diketahui';
     
-    if (window.confirm(`Apakah Anda yakin ingin menghapus transaksi dari ${donorName}?\n\nTindakan ini tidak dapat dibatalkan.`)) {
+    const result = await showConfirmDelete(
+      'Hapus Transaksi?',
+      `Apakah Anda yakin ingin menghapus transaksi dari ${donorName}? Tindakan ini tidak dapat dibatalkan.`
+    );
+    
+    if (result.isConfirmed) {
       try {
         await deleteTransaction(id);
-        alert('Transaksi berhasil dihapus');
+        showSuccess('Berhasil!', 'Transaksi berhasil dihapus');
         
         // Refresh transactions to ensure UI is updated
         const params: any = {};
@@ -594,7 +601,7 @@ export default function AllTransactions() {
         await fetchTransactions(params);
       } catch (err: any) {
         console.error('Error deleting transaction:', err);
-        alert('Gagal menghapus transaksi: ' + (err.response?.data?.message || err.message));
+        showError('Gagal Menghapus', err.response?.data?.message || err.message);
       }
     }
   };
@@ -605,34 +612,34 @@ export default function AllTransactions() {
 
     // Validation
     if (!formData.donorName.trim()) {
-      alert('Nama donatur harus diisi');
+      showError('Data Tidak Valid', 'Nama donatur harus diisi');
       return;
     }
     // Validate amount only for ZISWAF or QURBAN with ZISWAF program
     if (formData.programType === 'ZISWAF' || (formData.programType === 'QURBAN' && formData.ziswafProgramId)) {
       if (!formData.amount || formData.amount <= 0) {
-        alert('Nominal donasi harus lebih dari 0');
+        showError('Data Tidak Valid', 'Nominal donasi harus lebih dari 0');
         return;
       }
     }
     if (!formData.paymentMethodId) {
-      alert('Metode pembayaran harus dipilih');
+      showError('Data Tidak Valid', 'Metode pembayaran harus dipilih');
       return;
     }
     if (!formData.programId) {
-      alert('Program harus dipilih');
+      showError('Data Tidak Valid', 'Program harus dipilih');
       return;
     }
     if (!formData.branchId) {
-      alert('Cabang harus dipilih');
+      showError('Data Tidak Valid', 'Cabang harus dipilih');
       return;
     }
     if (!formData.teamId) {
-      alert('Tim harus dipilih');
+      showError('Data Tidak Valid', 'Tim harus dipilih');
       return;
     }
     if (!formData.volunteerId) {
-      alert('Relawan harus dipilih');
+      showError('Data Tidak Valid', 'Relawan harus dipilih');
       return;
     }
 
@@ -680,7 +687,7 @@ export default function AllTransactions() {
       const updatedTransaction = await updateTransaction(String(editingTransaction.id), updateData);
       setIsModalOpen(false);
       setEditingTransaction(null);
-      alert('Transaksi berhasil diperbarui');
+      showSuccess('Berhasil!', 'Transaksi berhasil diperbarui');
       
       // Refresh transactions to ensure UI is updated
       const params: any = {};
@@ -698,7 +705,7 @@ export default function AllTransactions() {
       await fetchTransactions(params);
     } catch (err: any) {
       console.error('Error updating transaction:', err);
-      alert('Gagal memperbarui transaksi: ' + (err.response?.data?.message || err.message));
+      showError('Gagal Memperbarui', err.response?.data?.message || err.message);
     } finally {
       setIsSubmitting(false);
     }
@@ -892,9 +899,10 @@ export default function AllTransactions() {
         'Nominal',
         'Metode Pembayaran',
         'Jenis Program',
-        'Program',
+        'Program/Type Hewan Qurban',
+        'Program Ziswaf',
+        'Nominal Ziswaf',
         'Nama Pemilik Qurban',
-        'Nominal Qurban',
         'Cabang',
         'Tim',
         'Relawan',
@@ -906,19 +914,52 @@ export default function AllTransactions() {
       // Sample data with instructions
       const sampleData = [
         [
-          'Contoh: Ahmad Budi',
+          'Ahmad Santoso',
           '500000',
           'Transfer Bank',
-          'ZISWAF atau QURBAN',
-          'Zakat Mal',
-          'Kosongkan jika bukan QURBAN',
-          'Kosongkan jika bukan QURBAN',
-          'Cabang Jakarta',
+          'ZISWAF',
+          '',
+          'Zakat Fitrah',
+          '500000',
+          '',
+          'Jakarta Pusat',
           'Tim Alpha',
-          'Nama Relawan',
-          '25/01/2025 14:30:00',
+          'Ahmad Volunteer',
+          '25/01/2025',
           'pending',
-          'Kosongkan jika status pending'
+          ''
+        ],
+        [
+          'Siti Nurhaliza',
+          '1000000',
+          'Cash',
+          'QURBAN',
+          'Qurban Kambing',
+          '',
+          '',
+          'Ahmad Santoso',
+          'Jakarta Selatan',
+          'Tim Beta',
+          'Siti Volunteer',
+          '25/01/2025',
+          'pending',
+          ''
+        ],
+        [
+          'Dewi Sartika',
+          '500000',
+          'Transfer Bank',
+          'QURBAN',
+          '',
+          'Zakat Mal',
+          '500000',
+          '',
+          'Jakarta Barat',
+          'Tim Delta',
+          'Dewi Volunteer',
+          '25/01/2025',
+          'pending',
+          ''
         ]
       ];
       
@@ -932,9 +973,10 @@ export default function AllTransactions() {
         { wch: 15 }, // Nominal
         { wch: 18 }, // Metode Pembayaran
         { wch: 15 }, // Jenis Program
-        { wch: 20 }, // Program
+        { wch: 25 }, // Program/Type Hewan Qurban
+        { wch: 20 }, // Program Ziswaf
+        { wch: 15 }, // Nominal Ziswaf
         { wch: 20 }, // Nama Pemilik Qurban
-        { wch: 15 }, // Nominal Qurban
         { wch: 15 }, // Cabang
         { wch: 15 }, // Tim
         { wch: 20 }, // Relawan
@@ -1003,10 +1045,10 @@ export default function AllTransactions() {
       // Save file
       XLSX.writeFile(wb, filename);
       
-      alert('Template berhasil didownload!');
+      toastSuccess('Template berhasil didownload!');
     } catch (error) {
       console.error('Error downloading template:', error);
-      alert('Terjadi kesalahan saat mendownload template');
+      showError('Gagal Download', 'Terjadi kesalahan saat mendownload template');
     }
   };
 
@@ -1021,7 +1063,7 @@ export default function AllTransactions() {
   // Process Excel import
   const processImport = async () => {
     if (!importFile) {
-      alert('Pilih file Excel terlebih dahulu');
+      showError('File Tidak Dipilih', 'Pilih file Excel terlebih dahulu');
       return;
     }
 
@@ -1039,13 +1081,13 @@ export default function AllTransactions() {
       const rows = jsonData.slice(1) as any[][];
       
       if (rows.length === 0) {
-        alert('File Excel kosong atau tidak ada data');
+        showError('File Kosong', 'File Excel kosong atau tidak ada data');
         setIsImporting(false);
         return;
       }
 
       if (rows.length > 1000) {
-        alert('Maksimal 1000 baris per import');
+        showError('Terlalu Banyak Data', 'Maksimal 1000 baris per import');
         setIsImporting(false);
         return;
       }
@@ -1065,8 +1107,9 @@ export default function AllTransactions() {
         setImportProgress(Math.round(((i + 1) / rows.length) * 100));
 
         try {
-          // Validate required fields
-          if (!row[0] || !row[1] || !row[2] || !row[3] || !row[4] || !row[7] || !row[8] || !row[9] || !row[10]) {
+          // Validate required fields (adjusted for CSV structure)
+          // Required: Nama Donatur[0], Metode Pembayaran[2], Jenis Program[3], Cabang[8], Tim[9], Relawan[10], Tanggal Transaksi[11]
+          if (!row[0] || !row[2] || !row[3] || !row[8] || !row[9] || !row[10] || !row[11]) {
             results.errors.push({
               row: rowNumber,
               message: 'Kolom wajib tidak boleh kosong'
@@ -1084,46 +1127,73 @@ export default function AllTransactions() {
             continue;
           }
 
-          // Validate QURBAN specific fields
-          if (programType === 'QURBAN') {
-            // Validate qurban owner name
-            const qurbanOwnerName = String(row[5] || '').trim();
-            if (!qurbanOwnerName) {
+          // Validate program specific fields
+          if (programType === 'ZISWAF') {
+            // For ZISWAF, Program/Type Hewan Qurban[4] must be filled (used as program identifier)
+            if (!row[4]) {
               results.errors.push({
                 row: rowNumber,
-                message: 'Nama Pemilik Qurban wajib diisi untuk program QURBAN'
+                message: 'Untuk program ZISWAF, kolom Program/Type Hewan Qurban wajib diisi'
               });
               continue;
             }
-            
-            // Validate qurban amount exists
-            if (!row[6]) {
+          } else if (programType === 'QURBAN') {
+            // For QURBAN, Program/Type Hewan Qurban[4] and Nama Pemilik Qurban[7] must be filled
+            if (!row[4]) {
               results.errors.push({
                 row: rowNumber,
-                message: 'Nominal Qurban wajib diisi untuk program QURBAN'
+                message: 'Untuk program QURBAN, kolom Program/Type Hewan Qurban wajib diisi'
+              });
+              continue;
+            }
+            if (!row[7]) {
+              results.errors.push({
+                row: rowNumber,
+                message: 'Untuk program QURBAN, kolom Nama Pemilik Qurban wajib diisi'
               });
               continue;
             }
           }
 
-          // Validate amount
-          const amount = Number(row[1]);
-          if (isNaN(amount) || amount <= 0) {
-            results.errors.push({
-              row: rowNumber,
-              message: 'Nominal harus berupa angka positif'
-            });
-            continue;
-          }
-
-          // Validate qurban amount if QURBAN
-          let qurbanAmount = 0;
-          if (programType === 'QURBAN') {
-            qurbanAmount = Number(row[6]);
-            if (isNaN(qurbanAmount) || qurbanAmount <= 0) {
+          // Validate amount based on program type
+          let amount = 0;
+          
+          if (programType === 'ZISWAF') {
+            // For ZISWAF, use Nominal[1]
+            if (row[1] && String(row[1]).trim() !== '') {
+              amount = Number(row[1]);
+              if (isNaN(amount) || amount <= 0) {
+                results.errors.push({
+                  row: rowNumber,
+                  message: 'Nominal harus berupa angka positif'
+                });
+                continue;
+              }
+            } else {
               results.errors.push({
                 row: rowNumber,
-                message: 'Nominal Qurban harus berupa angka positif'
+                message: 'Untuk program ZISWAF, kolom Nominal wajib diisi'
+              });
+              continue;
+            }
+          } else if (programType === 'QURBAN') {
+            // For QURBAN, amount should be 0 if Nominal[1] is empty
+            // The actual amount will be in qurban_amount from Nominal Qurban[6]
+            if (row[1] && String(row[1]).trim() !== '') {
+              amount = Number(row[1]);
+              if (isNaN(amount) || amount <= 0) {
+                results.errors.push({
+                  row: rowNumber,
+                  message: 'Nominal harus berupa angka positif'
+                });
+                continue;
+              }
+            }
+            // For QURBAN, we also need to validate Nominal Qurban[6]
+            if (!row[6] || String(row[6]).trim() === '') {
+              results.errors.push({
+                row: rowNumber,
+                message: 'Untuk program QURBAN, kolom Nominal Qurban wajib diisi'
               });
               continue;
             }
@@ -1131,8 +1201,8 @@ export default function AllTransactions() {
 
           // Parse transaction date
           let transactionDate = new Date();
-          if (row[10]) {
-            const dateStr = String(row[10]);
+          if (row[11]) {
+            const dateStr = String(row[11]);
             // Try different date formats
             const dateFormats = [
               /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})$/, // DD/MM/YYYY HH:MM:SS
@@ -1169,32 +1239,32 @@ export default function AllTransactions() {
           }
 
           // Find or create branch
-          let branch = branches.find(b => b.name.toLowerCase() === String(row[7]).toLowerCase());
+          let branch = branches.find(b => b.name.toLowerCase() === String(row[8]).toLowerCase());
           if (!branch) {
             // In real implementation, you might want to create the branch
             results.errors.push({
               row: rowNumber,
-              message: `Cabang '${row[7]}' tidak ditemukan`
+              message: `Cabang '${row[8]}' tidak ditemukan`
             });
             continue;
           }
 
           // Find or create team
-          let team = teams.find(t => t.name.toLowerCase() === String(row[8]).toLowerCase());
+          let team = teams.find(t => t.name.toLowerCase() === String(row[9]).toLowerCase());
           if (!team) {
             results.errors.push({
               row: rowNumber,
-              message: `Tim '${row[8]}' tidak ditemukan`
+              message: `Tim '${row[9]}' tidak ditemukan`
             });
             continue;
           }
 
           // Find volunteer
-          let volunteer = volunteers.find(v => v.name.toLowerCase() === String(row[9]).toLowerCase());
+          let volunteer = volunteers.find(v => v.name.toLowerCase() === String(row[10]).toLowerCase());
           if (!volunteer) {
             results.errors.push({
               row: rowNumber,
-              message: `Relawan '${row[9]}' tidak ditemukan`
+              message: `Relawan '${row[10]}' tidak ditemukan`
             });
             continue;
           }
@@ -1209,19 +1279,43 @@ export default function AllTransactions() {
             continue;
           }
 
-          // Find program
-          let program = programs.find(p => p.name.toLowerCase() === String(row[4]).toLowerCase());
-          if (!program) {
+          // Find program based on program type
+          let program;
+          let ziswafProgram = null;
+          
+          // Main program is always from Program/Type Hewan Qurban[4]
+          if (row[4]) {
+            program = programs.find(p => p.name.toLowerCase() === String(row[4]).toLowerCase());
+            if (!program) {
+              results.errors.push({
+                row: rowNumber,
+                message: `Program '${row[4]}' tidak ditemukan`
+              });
+              continue;
+            }
+          } else {
             results.errors.push({
               row: rowNumber,
-              message: `Program '${row[4]}' tidak ditemukan`
+              message: 'Program tidak ditemukan'
             });
             continue;
           }
+          
+          // Check for additional ziswaf program in Program Ziswaf[5]
+          if (row[5] && String(row[5]).trim() !== '') {
+            ziswafProgram = programs.find(p => p.name.toLowerCase() === String(row[5]).toLowerCase());
+            if (!ziswafProgram) {
+              results.errors.push({
+                row: rowNumber,
+                message: `Program Ziswaf '${row[5]}' tidak ditemukan`
+              });
+              continue;
+            }
+          }
 
-          // Validate status
+          // Validate status (status is at index 12)
           const validStatuses = ['pending', 'valid', 'double_duta', 'double_input', 'not_in_account', 'other'];
-          const status = row[11] ? String(row[11]).toLowerCase() : 'pending';
+          const status = row[12] ? String(row[12]).toLowerCase() : 'pending';
           if (!validStatuses.includes(status)) {
             results.errors.push({
               row: rowNumber,
@@ -1231,7 +1325,13 @@ export default function AllTransactions() {
           }
 
           // Create transaction data
-          const qurbanOwnerName = programType === 'QURBAN' ? String(row[5] || '').trim() : '';
+          const qurbanOwnerName = (programType === 'QURBAN') ? String(row[7] || '').trim() : '';
+          
+          // Get qurban amount from Nominal Qurban column[6] if available
+          let qurbanAmount = 0;
+          if (row[6] && String(row[6]).trim() !== '') {
+            qurbanAmount = Number(row[6]);
+          }
           
           const transactionData = {
             donorName: String(row[0] || '').trim(),
@@ -1240,14 +1340,15 @@ export default function AllTransactions() {
             programType: programType as 'ZISWAF' | 'QURBAN',
             programId: program.id,
             qurbanOwnerName: qurbanOwnerName,
-            qurbanAmount: programType === 'QURBAN' ? qurbanAmount : 0,
-            ziswafProgramId: programType === 'ZISWAF' ? program.id : '',
+            qurbanAmount: qurbanAmount,
+            // Only set ziswafProgramId for QURBAN transactions that have additional ziswaf program
+            ziswafProgramId: (programType === 'QURBAN' && ziswafProgram) ? ziswafProgram.id : null,
             branchId: branch.id,
             teamId: team.id,
             volunteerId: volunteer.id,
             transactionDate: transactionDate.toISOString(),
             status: status as Transaction['status'],
-            statusReason: row[12] ? String(row[12] || '').trim() : ''
+            statusReason: row[13] ? String(row[13] || '').trim() : ''
           };
 
           // Add to valid transactions
@@ -1302,7 +1403,7 @@ export default function AllTransactions() {
       
     } catch (error) {
       console.error('Error processing import:', error);
-      alert('Terjadi kesalahan saat memproses file import');
+      showError('Gagal Import', 'Terjadi kesalahan saat memproses file import');
     } finally {
       setIsImporting(false);
     }
@@ -1315,6 +1416,149 @@ export default function AllTransactions() {
     setImportProgress(0);
     setImportResults(null);
     setIsImporting(false);
+  };
+
+  // Export filtered transactions to Excel
+  const exportToExcel = () => {
+    try {
+      // Helper function to format currency for export
+      const formatCurrencyForExport = (amount: number) => {
+        return new Intl.NumberFormat('id-ID', {
+          style: 'currency',
+          currency: 'IDR',
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 0
+        }).format(amount);
+      };
+
+      // Helper function to get ZISWAF program name
+      const getZiswafProgramName = (transaction: Transaction) => {
+        if (!transaction.ziswaf_program_id && !transaction.ziswafProgramId) return '';
+        
+        // First check if ziswaf_program object is embedded
+        if (transaction.ziswaf_program?.name) {
+          return transaction.ziswaf_program.name;
+        }
+        
+        // Fallback: find program by ID
+        const ziswafProgramId = transaction.ziswaf_program_id || transaction.ziswafProgramId;
+        if (ziswafProgramId) {
+          const program = programs.find(p => String(p.id) === String(ziswafProgramId));
+          return program?.name || '';
+        }
+        
+        return '';
+      };
+
+      // Prepare data for export with customized column order
+      const exportData = filteredTransactions.map(transaction => ({
+        'ID': transaction.id,
+        'Dibuat Pada': formatDate(transaction.created_at || transaction.createdAt),
+        'Nama Donatur': transaction.donorName || transaction.donor_name || '',
+        'Tanggal Transaksi': formatDate(transaction.transaction_date || transaction.transactionDate || transaction.created_at || transaction.createdAt),
+        'Nominal': Number(transaction.amount) || 0,
+        'Nominal Qurban': Number(transaction.qurbanAmount || transaction.qurban_amount) || 0,
+        'Total Nominal': (Number(transaction.amount) || 0) + (Number(transaction.qurbanAmount || transaction.qurban_amount) || 0),
+        'Komisi Relawan': (() => {
+          let volunteerCommission = 0;
+          if (transaction.program_type === 'ZISWAF') {
+            const volunteerRate = transaction.ziswaf_volunteer_rate || transaction.volunteer_rate || 0;
+            const amount = Number(transaction.amount) || 0;
+            volunteerCommission = amount * volunteerRate / 100;
+          } else if (transaction.program_type === 'QURBAN') {
+            if (transaction.ziswaf_program_id) {
+              const qurbanVolunteerRate = transaction.volunteer_rate || 0;
+              const ziswafVolunteerRate = transaction.ziswaf_volunteer_rate || 0;
+              const qurbanAmount = Number(transaction.qurban_amount) || 0;
+              const ziswafAmount = Number(transaction.amount) || 0;
+              volunteerCommission = (qurbanAmount * qurbanVolunteerRate / 100) + (ziswafAmount * ziswafVolunteerRate / 100);
+            } else {
+              const volunteerRate = transaction.volunteer_rate || 0;
+              const amount = Number(transaction.qurban_amount) || 0;
+              volunteerCommission = amount * volunteerRate / 100;
+            }
+          }
+          return volunteerCommission;
+        })(),
+        'Komisi Cabang': (() => {
+          let branchCommission = 0;
+          if (transaction.program_type === 'ZISWAF') {
+            const branchRate = transaction.ziswaf_branch_rate || transaction.branch_rate || 0;
+            const amount = Number(transaction.amount) || 0;
+            branchCommission = amount * branchRate / 100;
+          } else if (transaction.program_type === 'QURBAN') {
+            if (transaction.ziswaf_program_id) {
+              const qurbanBranchRate = transaction.branch_rate || 0;
+              const ziswafBranchRate = transaction.ziswaf_branch_rate || 0;
+              const qurbanAmount = Number(transaction.qurban_amount) || 0;
+              const ziswafAmount = Number(transaction.amount) || 0;
+              branchCommission = (qurbanAmount * qurbanBranchRate / 100) + (ziswafAmount * ziswafBranchRate / 100);
+            } else {
+              const branchRate = transaction.branch_rate || 0;
+              const amount = Number(transaction.qurban_amount) || 0;
+              branchCommission = amount * branchRate / 100;
+            }
+          }
+          return branchCommission;
+        })(),
+        'Metode Pembayaran': transaction.paymentMethod?.name || transaction.transferMethod || transaction.transfer_method || '',
+        'Status': getStatusLabel(transaction.status),
+        'Alasan Status': transaction.statusReason || transaction.status_reason || '',
+        'Jenis Program': transaction.program_type || transaction.programType || '',
+        'Program': getProgramName(transaction),
+        'Nama Pemilik Qurban': transaction.qurbanOwnerName || transaction.qurban_owner_name || '',
+        'Program ZISWAF': getZiswafProgramName(transaction),
+        'Cabang': getBranchName(transaction),
+        'Tim': getTeamName(transaction),
+        'Relawan': getVolunteerName(transaction)
+      }));
+
+      // Create workbook
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(exportData);
+
+      // Auto-size columns
+      const colWidths = [];
+      const headers = Object.keys(exportData[0] || {});
+      headers.forEach((header, index) => {
+        const maxLength = Math.max(
+          header.length,
+          ...exportData.map(row => String(row[header as keyof typeof row] || '').length)
+        );
+        colWidths[index] = { wch: Math.min(maxLength + 2, 50) };
+      });
+      ws['!cols'] = colWidths;
+
+      // Add worksheet to workbook
+      XLSX.utils.book_append_sheet(wb, ws, 'Transaksi');
+
+      // Generate filename with current date and filter info
+      const currentDate = new Date().toISOString().split('T')[0];
+      let filename = `Transaksi_${currentDate}`;
+      
+      // Add filter info to filename
+      if (filters.datePreset !== 'all') {
+        filename += `_${filters.datePreset}`;
+      }
+      if (filters.branchId) {
+        const branchName = branches.find(b => String(b.id) === filters.branchId)?.name || 'Unknown';
+        filename += `_${branchName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      }
+      if (filters.status) {
+        filename += `_${filters.status}`;
+      }
+      
+      filename += '.xlsx';
+
+      // Save file
+      XLSX.writeFile(wb, filename);
+      
+      // Show success message
+      showSuccess('Export Berhasil!', `File: ${filename}\nTotal: ${exportData.length} transaksi`);
+    } catch (error) {
+      console.error('Export error:', error);
+      showError('Gagal Export', 'Gagal mengekspor data. Silakan coba lagi.');
+    }
   };
 
   if (isLoading) {
@@ -1339,6 +1583,13 @@ export default function AllTransactions() {
           <p className="text-gray-600 mt-2">Kelola dan pantau semua transaksi donasi</p>
         </div>
         <div className="flex space-x-3">
+          <button
+            onClick={exportToExcel}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center space-x-2"
+          >
+            <Download className="w-5 h-5" />
+            <span>Export Excel</span>
+          </button>
           <button
             onClick={() => setIsImportModalOpen(true)}
             className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 flex items-center space-x-2"
@@ -1919,8 +2170,26 @@ export default function AllTransactions() {
         {totalPages > 1 && (
           <div className="p-4 sm:p-6 border-t border-gray-200">
             <div className="flex flex-col sm:flex-row items-center justify-between space-y-3 sm:space-y-0">
-              <div className="text-sm text-gray-700 order-2 sm:order-1">
-                Halaman {currentPage} dari {totalPages}
+              <div className="flex items-center space-x-4 order-2 sm:order-1">
+                <div className="text-sm text-gray-700">
+                  Halaman {currentPage} dari {totalPages}
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm text-gray-700">Tampilkan:</span>
+                  <select
+                    value={itemsPerPage}
+                    onChange={(e) => {
+                      setItemsPerPage(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                  <span className="text-sm text-gray-700">per halaman</span>
+                </div>
               </div>
               <div className="flex items-center space-x-1 sm:space-x-2 order-1 sm:order-2">
                 <button

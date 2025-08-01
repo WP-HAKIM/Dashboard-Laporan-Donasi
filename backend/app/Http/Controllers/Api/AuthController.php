@@ -50,6 +50,47 @@ class AuthController extends Controller
         ]);
     }
 
+    public function updateProfile(Request $request)
+    {
+        $user = $request->user();
+        
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => 'required|string|email|max:255|unique:users,email,' . $user->id,
+            'phone' => 'nullable|string|max:20',
+            'current_password' => 'nullable|required_with:password',
+            'password' => 'nullable|string|min:8|confirmed',
+        ]);
+
+        // Verify current password if user wants to change password
+        if ($request->filled('password')) {
+            if (!$request->filled('current_password') || !Hash::check($request->current_password, $user->password)) {
+                throw ValidationException::withMessages([
+                    'current_password' => ['Password saat ini tidak benar.'],
+                ]);
+            }
+        }
+
+        // Update user data
+        $updateData = [
+            'name' => $request->name,
+            'email' => $request->email,
+            'phone' => $request->phone,
+        ];
+
+        // Add password to update data if provided
+        if ($request->filled('password')) {
+            $updateData['password'] = Hash::make($request->password);
+        }
+
+        $user->update($updateData);
+
+        return response()->json([
+            'message' => 'Profile berhasil diperbarui',
+            'user' => $user->fresh()->load(['branch', 'team'])
+        ]);
+    }
+
     public function register(Request $request)
     {
         $request->validate([

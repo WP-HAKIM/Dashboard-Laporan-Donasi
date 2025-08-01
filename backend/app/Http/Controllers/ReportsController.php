@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\Transaction;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
 
 class ReportsController extends Controller
 {
@@ -32,8 +33,9 @@ class ReportsController extends Controller
                 'branches.id',
                 'branches.name',
                 'branches.code',
-                DB::raw('COALESCE(SUM(COALESCE(transactions.amount, 0) + COALESCE(transactions.qurban_amount, 0)), 0) as total_donations'),
-                DB::raw('COALESCE(SUM((COALESCE(transactions.amount, 0) + COALESCE(transactions.qurban_amount, 0)) * COALESCE(transactions.branch_rate, 0) / 100), 0) as total_regular_donations'),
+                DB::raw('COALESCE(SUM(CASE WHEN transactions.status = "valid" THEN COALESCE(transactions.amount, 0) + COALESCE(transactions.qurban_amount, 0) ELSE 0 END), 0) as total_donations'),
+                DB::raw('COALESCE(SUM(CASE WHEN transactions.status = "valid" THEN COALESCE(transactions.amount, 0) ELSE 0 END), 0) as total_ziswaf_amount'),
+                DB::raw('COALESCE(SUM(CASE WHEN transactions.status = "valid" THEN (COALESCE(transactions.amount, 0) + COALESCE(transactions.qurban_amount, 0)) * COALESCE(transactions.branch_rate, 0) / 100 ELSE 0 END), 0) as total_regular_donations'),
                 DB::raw('COUNT(transactions.id) as total_transactions'),
                 DB::raw('COUNT(CASE WHEN transactions.status = "valid" THEN 1 END) as validated_transactions'),
                 DB::raw('COUNT(CASE WHEN transactions.status = "pending" THEN 1 END) as pending_transactions'),
@@ -44,11 +46,16 @@ class ReportsController extends Controller
             ->leftJoin('programs', 'transactions.program_id', '=', 'programs.id');
 
             // Apply date filters if provided
-            if ($dateFrom) {
-                $query->where('transactions.created_at', '>=', $dateFrom);
-            }
-            if ($dateTo) {
-                $query->where('transactions.created_at', '<=', $dateTo);
+            if ($dateFrom && $dateTo) {
+                $startDateTime = Carbon::parse($dateFrom)->startOfDay();
+                $endDateTime = Carbon::parse($dateTo)->endOfDay();
+                $query->whereBetween('transactions.created_at', [$startDateTime, $endDateTime]);
+            } elseif ($dateFrom) {
+                $startDateTime = Carbon::parse($dateFrom)->startOfDay();
+                $query->where('transactions.created_at', '>=', $startDateTime);
+            } elseif ($dateTo) {
+                $endDateTime = Carbon::parse($dateTo)->endOfDay();
+                $query->where('transactions.created_at', '<=', $endDateTime);
             }
 
             $branchReports = $query
@@ -61,6 +68,7 @@ class ReportsController extends Controller
                         'name' => $branch->name,
                         'code' => $branch->code,
                         'totalDonations' => (float) $branch->total_donations,
+                        'totalZiswafAmount' => (float) $branch->total_ziswaf_amount,
                         'totalRegularDonations' => (float) $branch->total_regular_donations,
                         'totalTransactions' => (int) $branch->total_transactions,
                         'validatedTransactions' => (int) $branch->validated_transactions,
@@ -106,8 +114,9 @@ class ReportsController extends Controller
                 'users.name',
                 'teams.name as team_name',
                 'branches.name as branch_name',
-                DB::raw('COALESCE(SUM(COALESCE(transactions.amount, 0) + COALESCE(transactions.qurban_amount, 0)), 0) as total_donations'),
-                DB::raw('COALESCE(SUM((COALESCE(transactions.amount, 0) + COALESCE(transactions.qurban_amount, 0)) * COALESCE(transactions.volunteer_rate, 0) / 100), 0) as total_regular_donations'),
+                DB::raw('COALESCE(SUM(CASE WHEN transactions.status = "valid" THEN COALESCE(transactions.amount, 0) + COALESCE(transactions.qurban_amount, 0) ELSE 0 END), 0) as total_donations'),
+                DB::raw('COALESCE(SUM(CASE WHEN transactions.status = "valid" THEN COALESCE(transactions.amount, 0) ELSE 0 END), 0) as total_ziswaf_amount'),
+                DB::raw('COALESCE(SUM(CASE WHEN transactions.status = "valid" THEN (COALESCE(transactions.amount, 0) + COALESCE(transactions.qurban_amount, 0)) * COALESCE(transactions.volunteer_rate, 0) / 100 ELSE 0 END), 0) as total_regular_donations'),
                 DB::raw('COUNT(transactions.id) as total_transactions'),
                 DB::raw('COUNT(CASE WHEN transactions.status = "valid" THEN 1 END) as validated_transactions'),
                 DB::raw('COUNT(CASE WHEN transactions.status = "pending" THEN 1 END) as pending_transactions')
@@ -119,11 +128,16 @@ class ReportsController extends Controller
             ->leftJoin('programs', 'transactions.program_id', '=', 'programs.id');
 
             // Apply date filters if provided
-            if ($dateFrom) {
-                $query->where('transactions.created_at', '>=', $dateFrom);
-            }
-            if ($dateTo) {
-                $query->where('transactions.created_at', '<=', $dateTo);
+            if ($dateFrom && $dateTo) {
+                $startDateTime = Carbon::parse($dateFrom)->startOfDay();
+                $endDateTime = Carbon::parse($dateTo)->endOfDay();
+                $query->whereBetween('transactions.created_at', [$startDateTime, $endDateTime]);
+            } elseif ($dateFrom) {
+                $startDateTime = Carbon::parse($dateFrom)->startOfDay();
+                $query->where('transactions.created_at', '>=', $startDateTime);
+            } elseif ($dateTo) {
+                $endDateTime = Carbon::parse($dateTo)->endOfDay();
+                $query->where('transactions.created_at', '<=', $endDateTime);
             }
 
             // Apply branch filter if provided
@@ -142,6 +156,7 @@ class ReportsController extends Controller
                         'teamName' => $volunteer->team_name ?? '-',
                         'branchName' => $volunteer->branch_name ?? '-',
                         'totalDonations' => (float) $volunteer->total_donations,
+                        'totalZiswafAmount' => (float) $volunteer->total_ziswaf_amount,
                         'totalRegularDonations' => (float) $volunteer->total_regular_donations,
                         'totalTransactions' => (int) $volunteer->total_transactions,
                         'validatedTransactions' => (int) $volunteer->validated_transactions,
@@ -299,29 +314,29 @@ class ReportsController extends Controller
      */
     private function getDateRangeFromPreset($preset)
     {
-        $now = now();
+        $now = Carbon::now();
         
         switch ($preset) {
              case 'current_month':
                  return [
-                     'start' => $now->startOfMonth()->format('Y-m-d'),
-                     'end' => $now->endOfMonth()->format('Y-m-d')
+                     'start' => $now->copy()->startOfMonth()->startOfDay()->format('Y-m-d H:i:s'),
+                     'end' => $now->copy()->endOfMonth()->endOfDay()->format('Y-m-d H:i:s')
                  ];
              
              case 'last_month':
              case '1_month_back':
                  $lastMonth = $now->copy()->subMonth();
                  return [
-                     'start' => $lastMonth->startOfMonth()->format('Y-m-d'),
-                     'end' => $lastMonth->endOfMonth()->format('Y-m-d')
+                     'start' => $lastMonth->copy()->startOfMonth()->startOfDay()->format('Y-m-d H:i:s'),
+                     'end' => $lastMonth->copy()->endOfMonth()->endOfDay()->format('Y-m-d H:i:s')
                  ];
              
              case 'two_months_ago':
              case '2_months_back':
                  $twoMonthsAgo = $now->copy()->subMonths(2);
                  return [
-                     'start' => $twoMonthsAgo->startOfMonth()->format('Y-m-d'),
-                     'end' => $twoMonthsAgo->endOfMonth()->format('Y-m-d')
+                     'start' => $twoMonthsAgo->copy()->startOfMonth()->startOfDay()->format('Y-m-d H:i:s'),
+                     'end' => $twoMonthsAgo->copy()->endOfMonth()->endOfDay()->format('Y-m-d H:i:s')
                  ];
              
              case 'all_data':

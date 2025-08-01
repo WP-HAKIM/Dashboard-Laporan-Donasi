@@ -22,6 +22,6 @@ class PaymentMethod extends Model
      */
     public function transactions(): HasMany
     {
-        return $this->hasMany(Transaction::class, 'transfer_method', 'name');
+        return $this->hasMany(Transaction::class, 'payment_method_id');
     }
 }

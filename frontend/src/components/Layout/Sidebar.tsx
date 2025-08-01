@@ -12,7 +12,9 @@ import {
   BarChart3,
   LogOut,
   Menu,
-  X
+  X,
+  User,
+  Settings
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth.tsx';
 
@@ -26,18 +28,35 @@ interface SidebarProps {
 export default function Sidebar({ activeTab, setActiveTab, collapsed, setCollapsed }: SidebarProps) {
   const { user, logout } = useAuth();
 
+  const getRoleLabel = (role: string) => {
+    const labels = {
+      admin: 'Admin',
+      validator: 'Validator',
+      volunteer: 'Relawan',
+      branch: 'Cabang'
+    };
+    return labels[role as keyof typeof labels] || role;
+  };
+
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home, roles: ['admin', 'validator', 'volunteer', 'branch'] },
-    { id: 'volunteers', label: 'Data Relawan', icon: Users, roles: ['admin'] },
-    { id: 'programs', label: 'Program Donasi', icon: Gift, roles: ['admin'] },
-    { id: 'payment-methods', label: 'Metode Pembayaran', icon: CreditCard, roles: ['admin'] },
     { id: 'input-transaction', label: 'Input Transaksi', icon: Plus, roles: ['admin', 'volunteer', 'branch'] },
     { id: 'validation', label: 'Validasi Transaksi', icon: CheckSquare, roles: ['admin', 'validator'] },
     { id: 'all-transactions', label: 'Semua Transaksi', icon: List, roles: ['admin', 'validator'] },
     { id: 'my-transactions', label: 'Transaksi Saya', icon: List, roles: ['volunteer', 'branch'] },
     { id: 'reports', label: 'Laporan', icon: BarChart3, roles: ['admin', 'validator', 'branch'] },
+    { id: 'volunteers', label: 'Data Relawan', icon: Users, roles: ['admin', 'branch'] },
+    { id: 'programs', label: 'Program Donasi', icon: Gift, roles: ['admin'] },
+    { id: 'payment-methods', label: 'Metode Pembayaran', icon: CreditCard, roles: ['admin'] },
     { id: 'branches', label: 'Kantor/Cabang', icon: Building, roles: ['admin'] },
-    { id: 'teams', label: 'Tim', icon: UsersRound, roles: ['admin'] }
+    { id: 'teams', label: 'Tim', icon: UsersRound, roles: ['admin'] },
+    {
+      id: 'settings',
+      label: 'Pengaturan Tampilan',
+      icon: Settings,
+      roles: ['admin']
+    },
+    { id: 'profile', label: 'Profile Saya', icon: User, roles: ['admin', 'validator', 'volunteer', 'branch'] }
   ];
 
   const filteredMenuItems = menuItems.filter(item => 
@@ -65,7 +84,7 @@ export default function Sidebar({ activeTab, setActiveTab, collapsed, setCollaps
             <h1 className="text-xl font-bold text-blue-600">Dashboard Donasi</h1>
             <p className="text-sm text-gray-500 mt-1">{user?.name}</p>
             <span className="inline-block px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full mt-2 capitalize">
-              {user?.role}
+              {getRoleLabel(user?.role || '')}
             </span>
           </div>
           

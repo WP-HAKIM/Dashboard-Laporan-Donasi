@@ -4,9 +4,11 @@ import { User } from '../../types';
 import { useUsers } from '../../hooks/useUsers';
 import { useBranches } from '../../hooks/useBranches';
 import { useTeams } from '../../hooks/useTeams';
+import { useAuth } from '../../hooks/useAuth';
 import Loader from '../Common/Loader';
 
 export default function VolunteerManagement() {
+  const { user } = useAuth();
   const { users: volunteers, isLoading, error, createUser, updateUser, deleteUser, fetchUsers } = useUsers();
   const { branches, fetchBranches } = useBranches();
   const { teams, fetchTeams } = useTeams();
@@ -56,8 +58,18 @@ export default function VolunteerManagement() {
   
   // Filter teams for filter dropdown
   const filterTeams = teams.filter(team => {
-    if (!filterBranchId) return true;
     const teamBranchId = team.branchId || (team as any).branch_id || team.branch?.id;
+    
+    // For branch role users, only show teams from their branch
+    if (user?.role === 'branch') {
+      const userBranchId = user.branchId || (user as any).branch_id;
+      if (userBranchId) {
+        return String(teamBranchId) === String(userBranchId);
+      }
+    }
+    
+    // For other roles, use the filter dropdown
+    if (!filterBranchId) return true;
     return String(teamBranchId) === String(filterBranchId);
   });
   
@@ -69,7 +81,16 @@ export default function VolunteerManagement() {
     
     // Branch filter
     const volunteerBranchId = getVolunteerBranchId(volunteer);
-    const matchesBranch = !filterBranchId || String(volunteerBranchId) === String(filterBranchId);
+    let matchesBranch = !filterBranchId || String(volunteerBranchId) === String(filterBranchId);
+    
+    // For branch role users, only show volunteers from their branch
+    if (user?.role === 'branch') {
+      const userBranchId = user.branchId || (user as any).branch_id;
+      console.log('Branch user filter:', { userBranchId, volunteerBranchId, user });
+      if (userBranchId) {
+        matchesBranch = String(volunteerBranchId) === String(userBranchId);
+      }
+    }
     
     // Team filter
     const volunteerTeamId = getVolunteerTeamId(volunteer);
@@ -229,7 +250,7 @@ export default function VolunteerManagement() {
               email: '',
               phone: '',
               password: '',
-              branchId: '',
+              branchId: user?.role === 'branch' ? (user?.branchId || (user as any).branch_id || '') : '',
               teamId: '',
               role: 'volunteer'
             });
@@ -257,27 +278,32 @@ export default function VolunteerManagement() {
         </div>
         
         {/* Filters */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Filter Cabang
-            </label>
-            <select
-              value={filterBranchId}
-              onChange={(e) => {
-                setFilterBranchId(e.target.value);
-                setFilterTeamId(''); // Reset team filter when branch changes
-              }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="">Semua Cabang</option>
-              {branches.map((branch) => (
-                <option key={branch.id} value={branch.id}>
-                  {branch.name}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className={`grid gap-4 ${
+          user?.role === 'branch' ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-3'
+        }`}>
+          {/* Hide branch filter for branch role users */}
+          {user?.role !== 'branch' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Filter Cabang
+              </label>
+              <select
+                value={filterBranchId}
+                onChange={(e) => {
+                  setFilterBranchId(e.target.value);
+                  setFilterTeamId(''); // Reset team filter when branch changes
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="">Semua Cabang</option>
+                {branches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -565,39 +591,49 @@ export default function VolunteerManagement() {
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Cabang
-                    </label>
-                    <select
-                      value={formData.branchId}
-                      onChange={(e) => setFormData({ ...formData, branchId: e.target.value, teamId: '' })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                      required
-                    >
-                      <option value="">Pilih Cabang</option>
-                      {branches.map(branch => (
-                        <option key={branch.id} value={branch.id}>{branch.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Tim
-                    </label>
-                    <select
-                      value={formData.teamId}
-                      onChange={(e) => setFormData({ ...formData, teamId: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                      required
-                      disabled={!formData.branchId}
-                    >
-                      <option value="">{!formData.branchId ? 'Pilih cabang terlebih dahulu' : 'Pilih Tim'}</option>
-                      {filteredTeams.map(team => (
-                        <option key={team.id} value={team.id}>{team.name}</option>
-                      ))}
-                    </select>
-                  </div>
+                  {/* Show branch field for volunteer and branch roles */}
+                  {(formData.role === 'volunteer' || formData.role === 'branch') && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Cabang
+                      </label>
+                      <select
+                        value={formData.branchId}
+                        onChange={(e) => setFormData({ ...formData, branchId: e.target.value, teamId: '' })}
+                        className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm ${
+                           user?.role === 'branch' ? 'bg-gray-100 cursor-not-allowed' : ''
+                         }`}
+                         required={formData.role === 'volunteer'}
+                         disabled={user?.role === 'branch'}
+                      >
+                        <option value="">{user?.role === 'branch' ? 'Cabang Anda' : 'Pilih Cabang'}</option>
+                        {branches.map(branch => (
+                          <option key={branch.id} value={branch.id}>{branch.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  
+                  {/* Show team field only for volunteer role */}
+                  {formData.role === 'volunteer' && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Tim
+                      </label>
+                      <select
+                        value={formData.teamId}
+                        onChange={(e) => setFormData({ ...formData, teamId: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        required={formData.role === 'volunteer'}
+                        disabled={!formData.branchId}
+                      >
+                        <option value="">{!formData.branchId ? 'Pilih cabang terlebih dahulu' : 'Pilih Tim'}</option>
+                        {filteredTeams.map(team => (
+                          <option key={team.id} value={team.id}>{team.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                   <div>
@@ -606,14 +642,48 @@ export default function VolunteerManagement() {
                     </label>
                     <select
                       value={formData.role}
-                      onChange={(e) => setFormData({ ...formData, role: e.target.value as any })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      onChange={(e) => {
+                        const newRole = e.target.value as any;
+                        const newFormData = { ...formData, role: newRole };
+                        
+                        // Clear branch and team for admin and validator roles
+                        if (newRole === 'admin' || newRole === 'validator') {
+                          newFormData.branchId = '';
+                          newFormData.teamId = '';
+                        }
+                        // Clear team for branch role (but keep branch)
+                        else if (newRole === 'branch') {
+                          newFormData.teamId = '';
+                        }
+                        
+                        setFormData(newFormData);
+                      }}
+                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm ${
+                        user?.role === 'branch' && !editingVolunteer ? 'bg-gray-100 cursor-not-allowed' : ''
+                      }`}
                       required
+                      disabled={user?.role === 'branch' && !editingVolunteer}
                     >
-                      <option value="volunteer">Relawan</option>
-                      <option value="branch">Cabang</option>
-                      <option value="validator">Validator</option>
-                      <option value="admin">Admin</option>
+                      {user?.role === 'branch' ? (
+                        // For branch users, show current role when editing, only volunteer when adding
+                        editingVolunteer ? (
+                          <>
+                            <option value="volunteer">Relawan</option>
+                            <option value="branch">Cabang</option>
+                            <option value="validator">Validator</option>
+                            <option value="admin">Admin</option>
+                          </>
+                        ) : (
+                          <option value="volunteer">Relawan</option>
+                        )
+                      ) : (
+                        <>
+                          <option value="volunteer">Relawan</option>
+                          <option value="branch">Cabang</option>
+                          <option value="validator">Validator</option>
+                          <option value="admin">Admin</option>
+                        </>
+                      )}
                     </select>
                   </div>
                 </div>

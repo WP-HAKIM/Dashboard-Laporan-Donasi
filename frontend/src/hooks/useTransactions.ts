@@ -42,11 +42,17 @@ export function useTransactions() {
     }
   };
 
-  const fetchMyTransactions = async () => {
+  const fetchMyTransactions = async (params?: { 
+    status?: string; 
+    program_type?: string;
+    date_from?: string;
+    date_to?: string;
+    date_preset?: string;
+  }) => {
     try {
       setIsLoading(true);
       setError(null);
-      const response = await transactionsAPI.getMyTransactions();
+      const response = await transactionsAPI.getMyTransactions(params);
       // API returns paginated data with structure: {data: [...], links: {...}, meta: {...}}
       // Filter out any null or undefined transactions
       const validTransactions = (response.data || []).filter(transaction => transaction && typeof transaction === 'object');

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './hooks/useAuth.tsx';
+import { AppSettingsProvider } from './hooks/useAppSettings.tsx';
 import LoginForm from './components/Auth/LoginForm.tsx';
 import Sidebar from './components/Layout/Sidebar';
 import DashboardView from './components/Dashboard/DashboardView';
@@ -13,6 +14,9 @@ import ValidationView from './components/Transactions/ValidationView';
 import BranchManagement from './components/Branches/BranchManagement';
 import TeamManagement from './components/Teams/TeamManagement';
 import ReportsView from './components/Reports/ReportsView';
+import SettingsView from './components/Settings/SettingsView';
+import ProfileView from './components/Profile/ProfileView.tsx';
+
 
 function AppContent() {
   const { user, isLoading } = useAuth();
@@ -58,6 +62,11 @@ function AppContent() {
         return <BranchManagement />;
       case 'teams':
         return <TeamManagement />;
+      case 'settings':
+        return <SettingsView />;
+      case 'profile':
+        return <ProfileView />;
+
       default:
         return <DashboardView />;
     }
@@ -83,7 +92,9 @@ function AppContent() {
 function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <AppSettingsProvider>
+        <AppContent />
+      </AppSettingsProvider>
     </AuthProvider>
   );
 }

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../hooks/useAuth.tsx';
+import { useAppSettings } from '../../hooks/useAppSettings.tsx';
 import { Lock, Mail, AlertCircle } from 'lucide-react';
 
 export default function LoginForm() {
@@ -8,6 +9,9 @@ export default function LoginForm() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
+  const { settings } = useAppSettings();
+
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,10 +35,16 @@ export default function LoginForm() {
       <div className="max-w-md w-full">
         <div className="bg-white rounded-2xl shadow-xl p-8">
           <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Lock className="w-8 h-8 text-white" />
+            <div className="w-16 h-16 mx-auto mb-4">
+              {settings.logoUrl ? (
+                <img src={settings.logoUrl} alt="Logo" className="w-16 h-16 object-contain" />
+              ) : (
+                <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center">
+                  <Lock className="w-8 h-8 text-white" />
+                </div>
+              )}
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">Dashboard Donasi</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{settings.appTitle}</h1>
             <p className="text-gray-600 mt-2">Masuk ke akun Anda</p>
           </div>
 
@@ -89,15 +99,7 @@ export default function LoginForm() {
             </button>
           </form>
 
-          <div className="mt-8 p-4 bg-gray-50 rounded-lg">
-            <h3 className="font-medium text-gray-900 mb-2">Demo Akun:</h3>
-            <div className="text-sm text-gray-600 space-y-1">
-              <div>Admin: admin@pabu.org</div>
-              <div>Branch Manager: manager.jakarta@pabu.org</div>
-              <div>Volunteer: ahmad@pabu.org</div>
-              <div className="text-xs text-gray-500 mt-2">Password: password</div>
-            </div>
-          </div>
+
         </div>
       </div>
     </div>

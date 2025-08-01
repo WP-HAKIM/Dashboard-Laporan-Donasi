@@ -10,6 +10,7 @@ import { useUsers } from '../../hooks/useUsers';
 import { usePaymentMethods } from '../../hooks/usePaymentMethods';
 import Loader from '../common/Loader';
 import { formatDateForInput, convertInputToISO } from '../../utils/dateUtils';
+import { showError, showSuccess, showConfirmDelete } from '../../utils/sweetAlert';
 
 export default function MyTransactions() {
   const { user } = useAuth();
@@ -26,6 +27,9 @@ export default function MyTransactions() {
     status: '',
     programType: ''
   });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(25);
+  const [isMobile, setIsMobile] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [imageLoadError, setImageLoadError] = useState<{[key: string]: boolean}>({});
@@ -53,21 +57,40 @@ export default function MyTransactions() {
     proofImage: null as File | null
   });
 
-  // Initialize date filter based on default preset
+  // Initialize date filter and fetch data based on default preset
   React.useEffect(() => {
     if (datePreset === 'current_month') {
-      const now = new Date();
-      const dateFrom = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-      const dateTo = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
-      setFilters(prev => ({ ...prev, dateFrom, dateTo }));
+      // Fetch with current month preset
+      const params = { date_preset: 'current_month' };
+      fetchMyTransactions(params);
+      fetchMyTransactionsStats();
+    } else {
+      // Fetch all data if no preset
+      fetchMyTransactions();
+      fetchMyTransactionsStats();
     }
   }, []); // Only run on mount
 
-  // Fetch my transactions and stats on component mount
+  // Detect mobile screen size
   React.useEffect(() => {
-    fetchMyTransactions();
-    fetchMyTransactionsStats();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 640);
+    };
+    
+    // Check on mount
+    checkMobile();
+    
+    // Add event listener for resize
+    window.addEventListener('resize', checkMobile);
+    
+    // Cleanup
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Reset to first page when filters change
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [filters, searchTerm]);
 
 
 
@@ -125,6 +148,8 @@ export default function MyTransactions() {
       );
     }
     
+    // Apply frontend date filtering only when dateFrom/dateTo are set (custom range or 'all' option)
+    // Backend handles preset filtering, so no need for frontend filtering when preset is used
     const createdAt = transaction.created_at || transaction.createdAt || '';
     const matchesDateFrom = !filters.dateFrom || !createdAt || new Date(createdAt) >= new Date(filters.dateFrom);
     const matchesDateTo = !filters.dateTo || !createdAt || new Date(createdAt) <= new Date(filters.dateTo);
@@ -133,6 +158,12 @@ export default function MyTransactions() {
 
     return matchesSearch && matchesDateFrom && matchesDateTo && matchesStatus && matchesProgram;
   });
+
+  // Pagination logic
+  const totalPages = Math.ceil(filteredTransactions.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedTransactions = filteredTransactions.slice(startIndex, endIndex);
 
   const getProgramName = (transaction: Transaction) => {
     const mainProgram = transaction.program?.name || (programs || []).find(p => p.id === transaction.program_id)?.name || '-';
@@ -244,14 +275,14 @@ export default function MyTransactions() {
       // Reset error state when opening new image
       setImageLoadError(prev => ({ ...prev, [transaction.id]: false }));
     } else {
-      alert('Tidak ada bukti gambar untuk transaksi ini');
+      showError('Tidak Ada Bukti', 'Tidak ada bukti gambar untuk transaksi ini');
     }
   };
 
   const handleImageError = (transactionId: string) => {
     setImageLoadError(prev => ({ ...prev, [transactionId]: true }));
     console.error('Error loading image for transaction:', transactionId);
-    alert('Gagal memuat gambar bukti transaksi');
+    showError('Gagal Memuat Gambar', 'Gagal memuat gambar bukti transaksi');
     setShowImageModal(false);
   };
 
@@ -297,7 +328,10 @@ export default function MyTransactions() {
           break;
       }
       
-      const newFilters = { ...filters, dateFrom, dateTo };
+      // For presets, don't store dateFrom/dateTo in filters to avoid frontend filtering conflict
+      const newFilters = preset && preset !== 'all' && preset !== 'custom' 
+        ? { ...filters, dateFrom: '', dateTo: '' }
+        : { ...filters, dateFrom, dateTo };
       setFilters(newFilters);
       
       // Fetch transactions with new filters
@@ -399,21 +433,26 @@ export default function MyTransactions() {
   const handleDelete = async (id: string) => {
     const transaction = myTransactions.find(t => t.id === id);
     if (transaction && transaction.status !== 'pending') {
-      alert('Hanya transaksi dengan status "Menunggu Validasi" yang dapat dihapus');
+      showError('Tidak Dapat Dihapus', 'Hanya transaksi dengan status "Menunggu Validasi" yang dapat dihapus');
       return;
     }
     
-    if (confirm('Apakah Anda yakin ingin menghapus transaksi ini?')) {
+    const result = await showConfirmDelete(
+      'Hapus Transaksi?',
+      'Apakah Anda yakin ingin menghapus transaksi ini?'
+    );
+    
+    if (result.isConfirmed) {
       try {
         await deleteTransaction(id);
-        alert('Transaksi berhasil dihapus!');
+        showSuccess('Berhasil!', 'Transaksi berhasil dihapus!');
         
         // Refresh transactions and stats to ensure UI is updated
         await fetchMyTransactions();
         await fetchMyTransactionsStats();
       } catch (error) {
         console.error('Error deleting transaction:', error);
-        alert('Gagal menghapus transaksi. Silakan coba lagi.');
+        showError('Gagal Menghapus', 'Gagal menghapus transaksi. Silakan coba lagi.');
       }
     }
   };
@@ -425,7 +464,7 @@ export default function MyTransactions() {
       // Validate transaction data
       if (!transaction || !transaction.id) {
         console.error('Invalid transaction data:', transaction);
-        alert('Data transaksi tidak valid');
+        showError('Data Tidak Valid', 'Data transaksi tidak valid');
         return;
       }
       
@@ -470,7 +509,7 @@ export default function MyTransactions() {
       console.log('Edit modal should be shown');
     } catch (error) {
       console.error('Error in handleEdit:', error);
-      alert('Terjadi kesalahan saat membuka form edit: ' + (error as Error).message);
+      showError('Error', 'Terjadi kesalahan saat membuka form edit: ' + (error as Error).message);
     }
   };
 
@@ -480,31 +519,31 @@ export default function MyTransactions() {
 
     // Validation
     if (!formData.donorName.trim()) {
-      alert('Nama donatur harus diisi');
+      showError('Validasi Error', 'Nama donatur harus diisi');
       return;
     }
     if (!formData.amount || formData.amount <= 0) {
-      alert('Nominal harus lebih dari 0');
+      showError('Validasi Error', 'Nominal harus lebih dari 0');
       return;
     }
     if (!formData.programId) {
-      alert('Program harus dipilih');
+      showError('Validasi Error', 'Program harus dipilih');
       return;
     }
     if (!formData.paymentMethodId) {
-      alert('Metode pembayaran harus dipilih');
+      showError('Validasi Error', 'Metode pembayaran harus dipilih');
       return;
     }
     if (!formData.branchId) {
-      alert('Cabang harus dipilih');
+      showError('Validasi Error', 'Cabang harus dipilih');
       return;
     }
     if (!formData.teamId) {
-      alert('Tim harus dipilih');
+      showError('Validasi Error', 'Tim harus dipilih');
       return;
     }
     if (!formData.volunteerId) {
-      alert('Relawan harus dipilih');
+      showError('Validasi Error', 'Relawan harus dipilih');
       return;
     }
 
@@ -554,7 +593,7 @@ export default function MyTransactions() {
       
       setIsModalOpen(false);
       setEditingTransaction(null);
-      alert('Transaksi berhasil diperbarui');
+      showSuccess('Berhasil!', 'Transaksi berhasil diperbarui');
       
       // Refresh data with error handling
       try {
@@ -570,7 +609,7 @@ export default function MyTransactions() {
       }
     } catch (error) {
       console.error('Error updating transaction:', error);
-      alert('Gagal memperbarui transaksi: ' + (error as Error).message);
+      showError('Gagal Memperbarui', 'Gagal memperbarui transaksi: ' + (error as Error).message);
     }
   };
 
@@ -956,7 +995,7 @@ export default function MyTransactions() {
               </tr>
             </thead>
             <tbody>
-              {(filteredTransactions || []).map((transaction) => (
+              {(paginatedTransactions || []).map((transaction) => (
                 <tr key={transaction.id} className="border-b border-gray-100">
                   <td className="py-4 px-6 text-gray-600">#{transaction.id}</td>
                   <td className="py-4 px-6 font-medium">{transaction.donorName || transaction.donor_name || '-'}</td>
@@ -1085,7 +1124,7 @@ export default function MyTransactions() {
         
         {/* Mobile/Tablet Card View */}
         <div className="lg:hidden">
-          {(filteredTransactions || []).map((transaction) => (
+          {(paginatedTransactions || []).map((transaction) => (
             <div key={transaction.id} className="border-b border-gray-100 p-4">
               <div className="flex justify-between items-start mb-3">
                 <div>
@@ -1222,6 +1261,81 @@ export default function MyTransactions() {
             </div>
           ))}
         </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4 px-4">
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <span>Menampilkan {startIndex + 1}-{Math.min(endIndex, filteredTransactions.length)} dari {filteredTransactions.length} transaksi</span>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-gray-600">Per halaman:</label>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+              
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Sebelumnya
+                </button>
+                
+                {/* Page numbers */}
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => setCurrentPage(pageNum)}
+                        className={`px-3 py-1 text-sm border rounded ${
+                          currentPage === pageNum
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+                </div>
+                
+                <button
+                  onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Selanjutnya
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {filteredTransactions.length === 0 && (
           <div className="text-center py-12">
@@ -1686,7 +1800,10 @@ export default function MyTransactions() {
                     <select
                       value={formData.status}
                       onChange={(e) => setFormData({ ...formData, status: e.target.value as Transaction['status'] })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm ${
+                        user?.role === 'branch' || user?.role === 'volunteer' ? 'bg-gray-100 cursor-not-allowed' : ''
+                      }`}
+                      disabled={user?.role === 'branch' || user?.role === 'volunteer'}
                       required
                     >
                       <option value="pending">Menunggu Validasi</option>
@@ -1706,7 +1823,10 @@ export default function MyTransactions() {
                       type="text"
                       value={formData.statusReason}
                       onChange={(e) => setFormData({ ...formData, statusReason: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm ${
+                        user?.role === 'branch' || user?.role === 'volunteer' ? 'bg-gray-100 cursor-not-allowed' : ''
+                      }`}
+                      disabled={user?.role === 'branch' || user?.role === 'volunteer'}
                       placeholder="Opsional"
                     />
                   </div>

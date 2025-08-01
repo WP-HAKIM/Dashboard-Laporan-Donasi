@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Storage;
 
 class Transaction extends Model
 {
@@ -100,5 +101,21 @@ class Transaction extends Model
     public function paymentMethod(): BelongsTo
     {
         return $this->belongsTo(PaymentMethod::class);
+    }
+
+    /**
+     * Boot the model and add event listeners
+     */
+    protected static function boot()
+    {
+        parent::boot();
+
+        // Add event listener for deleting transactions
+        static::deleting(function ($transaction) {
+            // Delete associated proof image file when transaction is deleted
+            if ($transaction->proof_image) {
+                Storage::disk('public')->delete($transaction->proof_image);
+            }
+        });
     }
 }

@@ -29,7 +29,7 @@ return new class extends Migration
 
         Schema::table('transactions', function (Blueprint $table) {
             // Add new payment_method_id column
-            $table->foreignId('payment_method_id')->nullable()->after('transfer_method')->constrained('payment_methods')->onDelete('cascade');
+            $table->foreignId('payment_method_id')->nullable()->constrained('payment_methods')->onDelete('cascade');
         });
 
         // Migrate existing data

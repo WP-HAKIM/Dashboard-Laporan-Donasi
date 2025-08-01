@@ -10,6 +10,7 @@ interface BranchReport {
   name: string;
   code: string;
   totalDonations: number;
+  totalZiswafAmount: number;
   totalRegularDonations: number;
   totalTransactions: number;
   validatedTransactions: number;
@@ -24,6 +25,7 @@ interface VolunteerReport {
   teamName: string;
   branchName: string;
   totalDonations: number;
+  totalZiswafAmount: number;
   totalRegularDonations: number;
   totalTransactions: number;
   validatedTransactions: number;
@@ -240,129 +242,227 @@ export default function ReportsView() {
       // Create workbook
       const wb = XLSX.utils.book_new();
       
-      // Sheet 1: Laporan Per Cabang
-      const branchData = filteredBranchReports.map((item, index) => ({
-        'No': index + 1,
-        'Nama Cabang': item.name,
-        'Kode Cabang': item.code,
-        'Total Donasi': item.totalDonations,
-        'Total Donasi ZISWAF': item.totalRegularDonations,
-        'Total Transaksi': item.totalTransactions,
-        'Tervalidasi': item.validatedTransactions,
-        'Pending': item.pendingTransactions,
-        'Ditolak': item.rejectedTransactions || 0,
-        'Gagal': item.failedTransactions || 0
-      }));
-      
-      // Calculate totals for branch report
-      const totalAllDonations = filteredBranchReports.reduce((sum, item) => sum + item.totalDonations, 0);
-      const totalZiswafDonations = filteredBranchReports.reduce((sum, item) => sum + item.totalRegularDonations, 0);
-      const totalAllVolunteers = filteredVolunteerReports.length;
-      const totalAllTransactions = filteredBranchReports.reduce((sum, item) => sum + item.totalTransactions, 0);
-      
-      // Add summary row to branch data
-      branchData.push({
-        'No': '',
-        'Nama Cabang': 'TOTAL KESELURUHAN',
-        'Kode Cabang': '',
-        'Total Donasi': totalAllDonations,
-        'Total Donasi ZISWAF': totalZiswafDonations,
-        'Total Transaksi': totalAllTransactions,
-        'Tervalidasi': filteredBranchReports.reduce((sum, item) => sum + item.validatedTransactions, 0),
-        'Pending': filteredBranchReports.reduce((sum, item) => sum + item.pendingTransactions, 0),
-        'Ditolak': filteredBranchReports.reduce((sum, item) => sum + (item.rejectedTransactions || 0), 0),
-        'Gagal': filteredBranchReports.reduce((sum, item) => sum + (item.failedTransactions || 0), 0)
-      });
-      
-      const ws1 = XLSX.utils.json_to_sheet(branchData);
-      XLSX.utils.book_append_sheet(wb, ws1, 'Laporan Per Cabang');
-      
-      // Sheet 2: Laporan Relawan Per Tim
-      const volunteerData = filteredVolunteerReports.map((item, index) => ({
-        'No': index + 1,
-        'Nama Relawan': item.name,
-        'Tim': item.teamName,
-        'Cabang': item.branchName,
-        'Total Donasi': item.totalDonations,
-        'Total Regulasi': item.totalRegularDonations,
-        'Status Transaksi Tervalidasi': item.validatedTransactions,
-        'Status Transaksi Pending': item.pendingTransactions
-      }));
-      
-      const ws2 = XLSX.utils.json_to_sheet(volunteerData);
-      XLSX.utils.book_append_sheet(wb, ws2, 'Laporan Relawan Per Tim');
-      
-      // Sheet 3: Semua Transaksi (fetch from API)
-      const params: any = {};
+      // Prepare report parameters
+      const reportParams: any = {};
       
       if (datePreset === 'custom' && dateFrom && dateTo) {
-        params.date_from = dateFrom;
-        params.date_to = dateTo;
-      } else if (datePreset !== 'all') {
-        params.date_preset = datePreset;
+        reportParams.dateFrom = dateFrom;
+        reportParams.dateTo = dateTo;
+      } else if (datePreset !== 'all_data') {
+        const presetMap: { [key: string]: string } = {
+          'current_month': 'current_month',
+          '1_month_back': '1_month_back',
+          '2_months_back': '2_months_back'
+        };
+        reportParams.datePreset = presetMap[datePreset] || 'current_month';
       }
       
-      const transactionsResponse = await transactionsAPI.getAll(params);
+      // Apply branch filter for branch role users
+      if (user?.role === 'branch' && user?.branch_id) {
+        reportParams.branchId = user.branch_id;
+      }
       
-      if (transactionsResponse.success) {
-        const transactionData = transactionsResponse.data.map((item: any, index: number) => ({
+      // Generate filename based on active tab and date
+      let filename = '';
+      let monthLabel = '';
+      
+      if (datePreset === 'custom' && dateFrom && dateTo) {
+        const startDate = new Date(dateFrom);
+        const endDate = new Date(dateTo);
+        const startMonth = startDate.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+        const endMonth = endDate.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+        
+        if (startMonth === endMonth) {
+          monthLabel = startMonth;
+        } else {
+          monthLabel = `${startMonth} - ${endMonth}`;
+        }
+      } else {
+        const now = new Date();
+        switch (datePreset) {
+          case 'current_month':
+            monthLabel = now.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+            break;
+          case '1_month_back':
+            const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            monthLabel = lastMonth.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+            break;
+          case '2_months_back':
+            const twoMonthsBack = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+            monthLabel = twoMonthsBack.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+            break;
+          case 'all_data':
+            monthLabel = 'Semua Data';
+            break;
+          default:
+            monthLabel = now.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+        }
+      }
+      
+      if (activeTab === 'branch') {
+        // Export Branch Report
+        filename = `Laporan Cabang ${monthLabel}.xlsx`;
+        
+        // Fetch branch data
+        const branchResponse = await reportsAPI.getBranchReports(reportParams);
+        const allBranchReports = branchResponse.success ? branchResponse.data : [];
+        
+        // Prepare branch data
+        const branchData = allBranchReports.map((item, index) => ({
           'No': index + 1,
-          'Nama Donatur': item.donor_name,
-          'Nominal': item.amount,
-          'Metode Pembayaran': item.payment_method?.name || '',
-          'Jenis Program': item.program_type,
-          'Program': item.program?.name || '',
-          'Nama Pemilik Qurban': item.qurban_owner_name || '',
-          'Nominal Qurban': item.qurban_amount || '',
-          'Cabang': item.branch?.name || '',
-          'Tim': item.team?.name || '',
-          'Relawan': item.volunteer?.name || '',
-          'Tanggal Transaksi': new Date(item.transaction_date).toLocaleDateString('id-ID'),
-          'Status': item.status,
-          'Alasan Status': item.status_notes || ''
+          'Nama Cabang': item.name,
+          'Kode Cabang': item.code,
+          'Total Donasi': item.totalDonations,
+          'Total Donasi ZISWAF': item.totalZiswafAmount,
+          'Regulasi Cabang': item.totalRegularDonations,
+          'Total Transaksi': item.totalTransactions,
+          'Tervalidasi': item.validatedTransactions,
+          'Pending': item.pendingTransactions,
+          'Ditolak': item.rejectedTransactions || 0,
+          'Gagal': item.failedTransactions || 0
         }));
         
-        const ws3 = XLSX.utils.json_to_sheet(transactionData);
-        XLSX.utils.book_append_sheet(wb, ws3, 'Semua Transaksi');
+        // Calculate totals for branch report
+        const totalAllDonations = allBranchReports.reduce((sum, item) => sum + item.totalDonations, 0);
+        const totalZiswafDonations = allBranchReports.reduce((sum, item) => sum + item.totalZiswafAmount, 0);
+        const totalRegulasiBranch = allBranchReports.reduce((sum, item) => sum + item.totalRegularDonations, 0);
+        const totalAllTransactions = allBranchReports.reduce((sum, item) => sum + item.totalTransactions, 0);
+        
+        // Add summary row to branch data
+        branchData.push({
+          'No': '',
+          'Nama Cabang': 'TOTAL KESELURUHAN',
+          'Kode Cabang': '',
+          'Total Donasi': totalAllDonations,
+          'Total Donasi ZISWAF': totalZiswafDonations,
+          'Regulasi Cabang': totalRegulasiBranch,
+          'Total Transaksi': totalAllTransactions,
+          'Tervalidasi': allBranchReports.reduce((sum, item) => sum + item.validatedTransactions, 0),
+          'Pending': allBranchReports.reduce((sum, item) => sum + item.pendingTransactions, 0),
+          'Ditolak': allBranchReports.reduce((sum, item) => sum + (item.rejectedTransactions || 0), 0),
+          'Gagal': allBranchReports.reduce((sum, item) => sum + (item.failedTransactions || 0), 0)
+        });
+        
+        // Calculate additional totals for branch report
+        const totalQurbanDonations = allBranchReports.reduce((sum, item) => sum + (item.totalDonations - item.totalZiswafAmount), 0);
+        const totalRejected = allBranchReports.reduce((sum, item) => sum + item.rejectedTransactions, 0);
+        const totalFailed = allBranchReports.reduce((sum, item) => sum + item.failedTransactions, 0);
+        
+        // Create summary section
+        const summaryData = [
+          ['RINGKASAN LAPORAN'],
+          ['Total Semua Donasi', formatCurrency(totalAllDonations)],
+          ['Total Donasi ZISWAF', formatCurrency(totalZiswafDonations)],
+          ['Total Donasi Qurban', formatCurrency(totalQurbanDonations)],
+          ['Total Transaksi', totalAllTransactions.toString()],
+          [''],
+          ['DETAIL PER CABANG'],
+          ['No', 'Nama Cabang', 'Kode Cabang', 'Total Donasi', 'Total Donasi ZISWAF', 'Total Donasi Qurban', 'Regulasi Cabang', 'Total Transaksi', 'Tervalidasi', 'Pending', 'Ditolak', 'Gagal']
+        ];
+        
+        // Convert branch data to array format
+        const branchDataArray = branchData.map(item => [
+          item['No'],
+          item['Nama Cabang'],
+          item['Kode Cabang'],
+          formatCurrency(item['Total Donasi']), // Format rupiah
+          formatCurrency(item['Total Donasi ZISWAF']), // Format rupiah
+          formatCurrency(item['Total Donasi'] - item['Total Donasi ZISWAF']), // Total Donasi Qurban
+          formatCurrency(item['Regulasi Cabang']), // Regulasi Cabang - using totalRegularDonations (commission)
+          item['Total Transaksi'],
+          item['Tervalidasi'],
+          item['Pending'],
+          item['Ditolak'],
+          item['Gagal']
+        ]);
+        
+        const finalBranchData = [...summaryData, ...branchDataArray];
+        const ws1 = XLSX.utils.aoa_to_sheet(finalBranchData);
+        XLSX.utils.book_append_sheet(wb, ws1, 'Laporan Cabang');
+        
+      } else {
+        // Export Volunteer Report
+        filename = `Laporan Relawan ${monthLabel}.xlsx`;
+        
+        // Fetch volunteer data
+        const volunteerResponse = await reportsAPI.getVolunteerReports(reportParams);
+        const allVolunteerReports = volunteerResponse.success ? volunteerResponse.data : [];
+        
+        // Prepare volunteer data
+        const volunteerData = allVolunteerReports.map((item, index) => ({
+          'No': index + 1,
+          'Nama Relawan': item.name,
+          'Tim': item.teamName,
+          'Cabang': item.branchName,
+          'Total Donasi': item.totalDonations,
+          'Total Donasi ZISWAF': item.totalZiswafAmount,
+          'Regulasi Relawan': item.totalRegularDonations,
+          'Total Transaksi': item.totalTransactions,
+          'Tervalidasi': item.validatedTransactions,
+          'Pending': item.pendingTransactions
+        }));
+        
+        // Calculate totals for volunteer report
+        const totalAllDonations = allVolunteerReports.reduce((sum, item) => sum + item.totalDonations, 0);
+        const totalZiswafDonations = allVolunteerReports.reduce((sum, item) => sum + item.totalZiswafAmount, 0);
+        const totalRegulasiVolunteer = allVolunteerReports.reduce((sum, item) => sum + item.totalRegularDonations, 0);
+        const totalAllTransactions = allVolunteerReports.reduce((sum, item) => sum + item.totalTransactions, 0);
+        const totalValidated = allVolunteerReports.reduce((sum, item) => sum + item.validatedTransactions, 0);
+        const totalPending = allVolunteerReports.reduce((sum, item) => sum + item.pendingTransactions, 0);
+        
+        // Add summary row to volunteer data
+        volunteerData.push({
+          'No': '',
+          'Nama Relawan': 'TOTAL KESELURUHAN',
+          'Tim': '',
+          'Cabang': '',
+          'Total Donasi': totalAllDonations,
+          'Total Donasi ZISWAF': totalZiswafDonations,
+          'Regulasi Relawan': totalRegulasiVolunteer,
+          'Total Transaksi': totalAllTransactions,
+          'Tervalidasi': totalValidated,
+          'Pending': totalPending
+        });
+        
+        // Calculate additional totals for volunteer report
+        const totalQurbanDonations = allVolunteerReports.reduce((sum, item) => sum + (item.totalDonations - item.totalZiswafAmount), 0);
+        
+        // Create summary section
+        const summaryData = [
+          ['RINGKASAN LAPORAN'],
+          ['Total Semua Donasi', formatCurrency(totalAllDonations)],
+          ['Total Donasi ZISWAF', formatCurrency(totalZiswafDonations)],
+          ['Total Donasi Qurban', formatCurrency(totalQurbanDonations)],
+          ['Total Relawan', allVolunteerReports.length.toString()],
+          ['Total Transaksi', totalAllTransactions.toString()],
+          [''],
+          ['DETAIL PER RELAWAN'],
+          ['No', 'Nama Relawan', 'Tim', 'Cabang', 'Total Donasi', 'Total Donasi ZISWAF', 'Total Donasi Qurban', 'Regulasi Relawan', 'Total Transaksi', 'Tervalidasi', 'Pending']
+        ];
+        
+        // Convert volunteer data to array format
+        const volunteerDataArray = volunteerData.map(item => {
+          return [
+            item['No'],
+            item['Nama Relawan'],
+            item['Tim'],
+            item['Cabang'],
+            formatCurrency(item['Total Donasi']), // Format rupiah
+            formatCurrency(item['Total Donasi ZISWAF']), // Format rupiah
+            typeof item['Total Donasi'] === 'number' && typeof item['Total Donasi ZISWAF'] === 'number' 
+              ? formatCurrency(item['Total Donasi'] - item['Total Donasi ZISWAF']) 
+              : formatCurrency(0), // Total Donasi Qurban
+            formatCurrency(item['Regulasi Relawan']), // Regulasi Relawan
+            item['Total Transaksi'],
+            item['Tervalidasi'],
+            item['Pending']
+          ];
+        });
+        
+        const finalVolunteerData = [...summaryData, ...volunteerDataArray];
+        const ws2 = XLSX.utils.aoa_to_sheet(finalVolunteerData);
+        XLSX.utils.book_append_sheet(wb, ws2, 'Laporan Relawan');
       }
-      
-      // Generate dynamic filename based on date filter
-       let filename = 'Laporan Donasi';
-       
-       if (datePreset === 'custom' && dateFrom && dateTo) {
-         const startDate = new Date(dateFrom);
-         const endDate = new Date(dateTo);
-         const startMonth = startDate.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
-         const endMonth = endDate.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
-         
-         if (startMonth === endMonth) {
-           filename += ` (${startMonth})`;
-         } else {
-           filename += ` (${startMonth} - ${endMonth})`;
-         }
-       } else {
-         const now = new Date();
-         switch (datePreset) {
-           case 'current_month':
-             filename += ` (${now.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })})`;
-             break;
-           case '1_month_back':
-             const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-             filename += ` (${lastMonth.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })})`;
-             break;
-           case '2_months_back':
-             const twoMonthsBack = new Date(now.getFullYear(), now.getMonth() - 2, 1);
-             filename += ` (${twoMonthsBack.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })})`;
-             break;
-           case 'all_data':
-             filename += ' (Semua Data)';
-             break;
-           default:
-             filename += ` (${now.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })})`;
-         }
-       }
-       
-       filename += '.xlsx';
       
       // Save file
       XLSX.writeFile(wb, filename);

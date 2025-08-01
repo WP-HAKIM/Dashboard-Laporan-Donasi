@@ -1,11 +1,11 @@
 import axios from 'axios';
 import { User, Branch, Team, Program, Transaction } from '../types';
 
-const API_BASE_URL = 'http://localhost:8000/api';
+const API_BASE_URL = 'https://api.pabu.or.id';
 
 // Create axios instance
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: `${API_BASE_URL}/api`,
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
@@ -86,6 +86,18 @@ export const authAPI = {
   
   getProfile: async () => {
     const response = await api.get('/user');
+    return response.data;
+  },
+  
+  updateProfile: async (data: {
+    name: string;
+    email: string;
+    phone?: string;
+    current_password?: string;
+    password?: string;
+    password_confirmation?: string;
+  }) => {
+    const response = await api.put('/profile', data);
     return response.data;
   },
 };
@@ -193,8 +205,15 @@ export const transactionsAPI = {
     return response.data;
   },
   
-  getMyTransactions: async () => {
-    const response = await api.get('/my-transactions', { params: { paginate: 'false' } });
+  getMyTransactions: async (params?: { 
+    status?: string; 
+    program_type?: string;
+    date_from?: string;
+    date_to?: string;
+    date_preset?: string;
+    paginate?: string;
+  }) => {
+    const response = await api.get('/my-transactions', { params: { paginate: 'false', ...params } });
     return response.data;
   },
   
@@ -255,6 +274,8 @@ export const transactionsAPI = {
     const response = await api.delete(`/transactions/${id}`);
     return response.data;
   },
+  
+
 };
 
 // Dashboard API
@@ -291,6 +312,51 @@ export const reportsAPI = {
     branch_id?: string;
   }) => {
     const response = await api.get('/reports/volunteers', { params });
+    return response.data;
+  },
+};
+
+// App Settings API
+export const appSettingsAPI = {
+  get: async () => {
+    const response = await api.get('/app-settings');
+    return response.data;
+  },
+  
+  update: async (settings: {
+    app_title: string;
+    logo_url: string;
+    primary_color: string;
+    secondary_color: string;
+    background_color: string;
+    text_color: string;
+    sidebar_color: string;
+  }) => {
+    const response = await api.put('/app-settings', settings);
+    return response.data;
+  },
+  
+  uploadLogo: async (file: File) => {
+    const formData = new FormData();
+    formData.append('logo', file);
+    
+    const response = await api.post('/app-settings/upload-logo', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+  
+  uploadFavicon: async (file: File) => {
+    const formData = new FormData();
+    formData.append('favicon', file);
+    
+    const response = await api.post('/app-settings/upload-favicon', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
     return response.data;
   },
 };

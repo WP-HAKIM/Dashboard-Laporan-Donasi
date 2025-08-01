@@ -10,6 +10,7 @@ import { useUsers } from '../../hooks/useUsers';
 import { User, Team } from '../../types';
 import { teamsAPI } from '../../services/api';
 import { getCurrentIndonesianDateTime, convertInputToISO } from '../../utils/dateUtils';
+import { showError, showSuccess } from '../../utils/sweetAlert';
 
 export default function TransactionInput() {
   const { user } = useAuth();
@@ -23,7 +24,7 @@ export default function TransactionInput() {
   const [volunteers, setVolunteers] = useState<User[]>([]);
   const [branchTeams, setBranchTeams] = useState<Team[]>([]);
   const [formData, setFormData] = useState({
-    branchId: user?.role === 'volunteer' ? (user.branchId || (user as any).branch_id || '') : '',
+    branchId: (user?.role === 'volunteer' || user?.role === 'branch') ? (user.branchId || (user as any).branch_id || '') : '',
     teamId: user?.role === 'volunteer' ? (user.teamId || (user as any).team_id || '') : '',
     volunteerId: user?.role === 'volunteer' ? user.id : '',
     programType: 'ZISWAF' as 'ZISWAF' | 'QURBAN',
@@ -116,11 +117,11 @@ export default function TransactionInput() {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
-        alert('Ukuran file maksimal 5MB');
+        showError('Ukuran File Terlalu Besar', 'Ukuran file maksimal 5MB');
         return;
       }
       if (!['image/jpeg', 'image/png', 'image/jpg', 'image/gif', 'image/webp'].includes(file.type)) {
-        alert('Hanya file JPG, PNG, GIF, dan WebP yang diperbolehkan');
+        showError('Format File Tidak Valid', 'Hanya file JPG, PNG, GIF, dan WebP yang diperbolehkan');
         return;
       }
       setFormData({ ...formData, proofImage: file });
@@ -169,11 +170,11 @@ export default function TransactionInput() {
       await createTransaction(formDataToSend);
       await fetchMyTransactionsStats();
       
-      alert('Transaksi berhasil disimpan!');
+      showSuccess('Berhasil!', 'Transaksi berhasil disimpan!');
       
       // Reset form
       setFormData({
-        branchId: user?.role === 'volunteer' ? (user.branchId || (user as any).branch_id || '') : '',
+        branchId: (user?.role === 'volunteer' || user?.role === 'branch') ? (user.branchId || (user as any).branch_id || '') : '',
         teamId: user?.role === 'volunteer' ? (user.teamId || (user as any).team_id || '') : '',
         volunteerId: user?.role === 'volunteer' ? user.id : '',
         programType: 'ZISWAF',
@@ -208,7 +209,7 @@ export default function TransactionInput() {
         errorMessage = error.message;
       }
       
-      alert(errorMessage);
+      showError('Gagal Menyimpan Transaksi', errorMessage);
     } finally {
       setIsSubmitting(false);
     }
@@ -235,7 +236,7 @@ export default function TransactionInput() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Cabang/Kantor *
                 </label>
-                {user?.role === 'volunteer' ? (
+                {(user?.role === 'volunteer' || user?.role === 'branch') ? (
                   <div className="w-full px-4 py-3 border border-gray-200 rounded-lg bg-gray-50 text-gray-700">
                     {branches.find(branch => branch.id === formData.branchId)?.name || 'Cabang tidak ditemukan'}
                   </div>

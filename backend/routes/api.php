@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\ProgramController;
 use App\Http\Controllers\Api\TeamController;
 use App\Http\Controllers\Api\TransactionController;
 use App\Http\Controllers\Api\UserController;
+use App\Http\Controllers\AppSettingsController;
 use App\Http\Controllers\ReportsController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -19,11 +20,15 @@ Route::post('/register', [AuthController::class, 'register']);
 // Public payment methods (for transaction form)
 Route::get('/payment-methods', [PaymentMethodController::class, 'index']);
 
+// Public app settings (for frontend theming)
+Route::get('/app-settings', [AppSettingsController::class, 'show']);
+
 // Protected routes
 Route::middleware('auth:sanctum')->group(function () {
     // Auth routes
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'user']);
+    Route::put('/profile', [AuthController::class, 'updateProfile']);
     
     // User routes
     Route::apiResource('users', UserController::class);
@@ -48,6 +53,11 @@ Route::middleware('auth:sanctum')->group(function () {
     // Dashboard routes
     Route::get('/dashboard', [DashboardController::class, 'index']);
     
+    // App Settings routes (update requires auth)
+    Route::put('/app-settings', [AppSettingsController::class, 'update']);
+    Route::post('/app-settings/upload-logo', [AppSettingsController::class, 'uploadLogo']);
+    Route::post('/app-settings/upload-favicon', [AppSettingsController::class, 'uploadFavicon']);
+    
     // Transaction routes
     Route::apiResource('transactions', TransactionController::class);
     Route::post('/transactions/{transaction}/validate', [TransactionController::class, 'validate']);
@@ -57,7 +67,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/my-transactions-stats', [TransactionController::class, 'myTransactionsStats']);
     Route::get('/pending-transactions', [TransactionController::class, 'pending']);
     
-    // Reports routes
+});
+
+// Reports routes
+Route::middleware('auth:api')->group(function () {
     Route::get('/reports/branches', [ReportsController::class, 'getBranchReports']);
     Route::get('/reports/volunteers', [ReportsController::class, 'getVolunteerReports']);
     Route::get('/reports/branches/{branchId}/detail', [ReportsController::class, 'getBranchDetailReport']);

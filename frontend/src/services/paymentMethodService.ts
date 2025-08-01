@@ -20,7 +20,7 @@ interface UpdatePaymentMethodData {
 }
 
 class PaymentMethodService {
-  private baseUrl = 'http://localhost:8000/api';
+  private baseUrl = 'https://api.pabu.or.id';
 
   private getAuthHeaders() {
     const token = localStorage.getItem('auth_token');
